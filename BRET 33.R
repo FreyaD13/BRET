@@ -1,0 +1,1073 @@
+BRET<-function(Experiment,
+               import.data,
+               Directory="Raw data/",
+               lum.threshold=1000,
+               Samples, #Cells in each row. Can be a list of 8 samples in the 
+               #correct (A-H) order, or a single sample if they're 
+               #consistent across the plate. See S2 for what to do 
+               #with 2-4 repeating samples.
+               Ligands,   #Treatment of the cells in each row. Use like Samples.
+               Acceptor="Acceptor",  #Wavelength or identifier of acceptor channel.
+               #Defaults to 'acceptor'
+               Donor="Donor",     #Wavelength or identifier of donor channel
+               #Defaults to 'donor'
+               GProt=FALSE,   #Is this a g-protein BRET? does the data need inverted
+               Concentrations=c("30", "10", "3", "1","0.3","0.1" ,"0.03" ,"0.01" ,"0.003","0.001","0.0003","0"), 
+               #MUST be in uM and end in 0. Default is 
+               #30,10,3,1 etc. but can be replaced by a list 
+               #of 12 concentrations.
+               seperate=FALSE,#Default false, analyse each plate seperately
+               save.plot=TRUE,#Default true, save any plots made
+               save.raw=FALSE, #Default false, save raw data for each plate
+               save.means=FALSE,
+               ignore.lig=FALSE, #do you want to ignore sorting by ligands?
+               #for example if ligands only vary due to
+               #different receptors
+               save.processed=FALSE, #default is false, save tidy raw data
+               colour, #if both sample+ligand are variables, which should
+               #be indicated by colour (the other will be shape)
+               find.ec50=FALSE,
+               save.ec50.lines=FALSE,
+               save.curve.fit=FALSE,
+               subset.ligands,
+               subset.samples,
+               highlight.ec50,
+               #import.means and compare.exp are false by default meaning that
+               #each data point will be treated as one data point in the final result
+               #if compare.exp is set to true, all data points will still be
+               #shown but results will be seperated by experiment
+               #if import.means is set to true, the means from each experiment become
+               #the new data points. this is necessary for avoiding pseudoreplication;
+               #each experiment= 1 data point/1 replicate
+               import.means=FALSE,
+               compare.exp=FALSE,
+               data.points=TRUE,
+               set.line.resolution=0.001,
+               constrain.min=TRUE
+){#Set universal defaults
+  
+  if ((find.ec50==FALSE)&(save.plot==TRUE)){
+    find.ec50=TRUE
+  }
+  
+  output<-list()
+  
+  #first work out the data source; check there isn't more than one
+  if ((!missing(Experiment))&(!missing(import.data))){
+    warning("Multiple data sources provided, only raw data will be used")
+    rm(import.data)
+  }
+  
+  #check there is at least one
+  if ((missing(Experiment))&(missing(import.data))){
+    warning("NO DATA PROVIDED")
+  }
+  
+  #Normal BRET Processing from source code
+  if (!missing(Experiment)){
+    Experiment<-as.character(Experiment)
+    
+    #create a list of all files containing the experiment stem in their name
+    list<-grep(paste0(Experiment),list.files(Directory),value = TRUE)
+    
+    #import the layout data locally
+    source("BRETLayouts.R",local=TRUE)
+    
+    #Check data is available for this experiment
+    #If a file with the experiment name does not exist
+    if (!exists(paste0(Experiment))&
+        #plus no data has been otherwise supplied
+        ((missing(GProt)) | (missing(Samples)) | (missing(Ligands)))) {
+      #first look for a reason if one exists and paste a warning
+      if (exists(paste0(Experiment,"_Missing"))){
+        warning("Plate Layout Data Missing for ",Experiment,": ",get(paste0(Experiment,"_Missing")))
+        #or print a generic explanation
+      } else {warning("Plate Layout Data Missing for ",Experiment,": Reason not found.")}
+    }
+    
+    #print any other warnings about the data
+    if (exists(paste0(Experiment,"_Warning"))){
+      warning(get(paste0(Experiment,"_Warning")))
+    }
+    
+    #otherwise can proceed
+    if (exists(paste0(Experiment))|
+        ((exists("GProt")) & (exists("Samples")) & (exists("Ligands")))) {
+    
+      #check if there is a concentration modification. if so update the concentrations
+      if ("Concentrations" %in% names(plate.layouts[[Experiment]])){
+        Concentrations<-plate.layouts[[Experiment]]$Concentrations
+      }
+      
+      #Import GProt, Samples and Ligands from layout data unless they have been
+      #specified
+      if (missing(GProt)){
+        GProt<-plate.layouts[[Experiment]]$GProt
+      }
+      
+      if (missing(Samples)){
+        Samples<-plate.layouts[[Experiment]]$Samples
+      }
+      
+      if (missing(Ligands)){
+        Ligands<-plate.layouts[[Experiment]]$Ligands
+      }
+      
+      #set a Samples and Ligands source that wont be changed by looping
+      SamplesSource<-Samples
+      SamplesDims<-dim(data.frame(Samples))[2]
+      LigandsSource<-Ligands
+      LigandsDims<-dim(data.frame(Ligands))[2]
+      
+      #for every file in that list...
+      for (file in 1:length(list)) {
+        
+        #.... first stick Raw data/ in front of it
+        Data_Path<-paste0(Directory,list[file])
+        
+        #Then check set the samples and ligands for each plate if they're different
+        
+        #first check whether more than one list of samples has been provided. If only
+        #one is provided it should be applied to each plate
+        if (SamplesDims>1){
+          #if there are more samples provided than the list of experiments it will
+          #be an errror
+          if (SamplesDims>length(list)){
+            stop("More samples provided than experiments found")
+          }
+          #The opposite will also produce an error
+          if (SamplesDims<length(list)){
+            stop("More experiments found than samples provided")
+          }
+          #If the number of samples is the same as the length of the list it'll be
+          #fine
+          if (SamplesDims==length(list)){
+            Samples<-t(SamplesSource[file])
+          }
+        }# end of set samples
+        
+        #Exactly the same thing is done for ligands
+        if (LigandsDims>1){
+          #error if there are more ligands than experiments 
+          if (LigandsDims>length(list)){
+            stop("More ligands provided than experiments found")
+          } #end of error
+          #error if more experiments than ligands
+          if (LigandsDims<length(list)){
+            stop("More experiments found than ligands provided")
+          } #end of error
+          #If no of ligands = number of experiments, the ligand list is set as
+          #the number of that experiment (file)
+          if (LigandsDims==length(list)){
+            Ligands<-t(LigandsSource[file])
+          }
+        } #end of set ligands
+        
+        
+        #then run the whole BRET function
+        { #Save entire .csv as Bys
+          Bys<-read_csv(Data_Path)
+          
+          #Extracts the specific rows with useful data in them
+          Bys<-bind_rows(Bys[36:43,],Bys[47:54,],Bys[59:66,],Bys[70:77,])
+          
+          
+          names(Bys)[2]<-"Char"
+          
+          #The second column is char by default, this changes it to a double
+          Bys$Char<-as.double(Bys$Char)
+          
+
+            
+          #first checks the correct number of concentrations have been supplied and
+          #if not ends the function and prints error message
+          if (!length(Concentrations)==12){
+            stop("Wrong number of concentrations supplied")
+          } else {names(Bys)[1]<-"Row"
+           names(Bys)[2:13]<-Concentrations}
+          
+          #Establish what the vehicle concentration has been written as
+          
+          
+          #Specifying intervals, first creates a new column and fills it with "Two"
+          Bys$Interval <- "Two"
+          #Then changes the value of the second half to "three"
+          Bys[17:32,14]<-"Three"
+          #If donor and acceptor channel names are unavailable they're just referred to
+          #as donor and acceptor
+          if (missing(Donor)){Donor<-"donor"}
+          if (missing(Acceptor)){Acceptor<-"acceptor"}
+          
+          #Specifying channels, creates a new column and fills it with whichever
+          #acceptor was specified
+          Bys$Channel<-Acceptor
+          #Then replaces every other 8 rows with Donor
+          Bys[c(9:16,25:32),15]<-Donor
+          #Creates new columns to fill with the Sample and Ligand for each row
+          Bys$Sample<-"unspecified"
+          Bys$Ligand<-"unspecified"
+          
+          #########################
+          #Assign the sample/ligand labels to the correct rows. This is likely too 
+          #convoluted and could be simplified
+          
+          #If statement turns the Samples into a list if they're not already
+          if (!is.list(Samples)){
+            #if not a blank list of x's is created
+            Samples<-rep(Samples,8)
+          }
+          #Also if Samples is a list but there is only one element the same
+          #must be done
+          if (length(Samples)<8){
+            Samples<-rep(Samples,ceiling(8/length(Samples)))
+            Samples<-Samples[1:8]
+          }
+          
+          #Exactly the same thing is done for ligands
+          if (length(Ligands)<8){
+            Ligands<-rep(Ligands,ceiling(8/length(Ligands)))
+            Ligands<-Ligands[1:8]
+          }
+          
+          #go through the data and assign the correct sample and ligand name to each row
+          #by looking at which letter is in the 'Row' column.
+          
+          for (row in 1:dim(Bys)[1]) {
+            if (Bys$Row[row]=="A") {Bys$Sample[row]=Samples[1]
+            Bys$Ligand[row]=Ligands[1]}
+            if (Bys$Row[row]=="B") {Bys$Sample[row]=Samples[2]
+            Bys$Ligand[row]=Ligands[2]}
+            if (Bys$Row[row]=="C") {Bys$Sample[row]=Samples[3]
+            Bys$Ligand[row]=Ligands[3]}
+            if (Bys$Row[row]=="D") {Bys$Sample[row]=Samples[4]
+            Bys$Ligand[row]=Ligands[4]}
+            if (Bys$Row[row]=="E") {Bys$Sample[row]=Samples[5]
+            Bys$Ligand[row]=Ligands[5]}
+            if (Bys$Row[row]=="F") {Bys$Sample[row]=Samples[6]
+            Bys$Ligand[row]=Ligands[6]}
+            if (Bys$Row[row]=="G") {Bys$Sample[row]=Samples[7]
+            Bys$Ligand[row]=Ligands[7]}
+            if (Bys$Row[row]=="H") {Bys$Sample[row]=Samples[8]
+            Bys$Ligand[row]=Ligands[8]}}
+          
+          
+          #Now everything has been done that requires specifying the actual row,
+          #so rows can be removed if they contain values under threshold
+          rows.removed<-FALSE
+          
+          #the automatic threshold is 1000
+          if (missing(lum.threshold)){
+            lum.threshold<-1000
+          }
+          
+          
+          #for the length of the Bys data frame
+          for (row in 1:dim(Bys)[1]){
+            #if any rows are under the set threshold, or contain NAs...
+            if ((any((Bys[row,2:13]<lum.threshold)))|(any(is.na(Bys[row,2:13])))){
+              #..first if this is the first row identified to be removed
+              if (rows.removed==FALSE){
+                #the first four elements of a rows.to.remove list are created and set as NAs
+                rows.to.remove<-rep(NA,4)
+                #a counter is set to 0
+                counter<-0
+                #rows.removed is changed to TRUE
+                rows.removed<-TRUE
+              }#end of if this is the first iteration
+              
+              #then for every row in the Bys data frame
+              for (subrow in 1:dim(Bys)[1]){
+                #if the row letter matches the one that has been identified as needing
+                #to be removed
+                if (Bys[row,1]==Bys[subrow,1]){
+                  #the counter is updated
+                  counter<-counter+1
+                  #the row is added to the list
+                  rows.to.remove[counter]<-subrow
+                }#end of correct letter match
+              }#end of checking letter matches across Bys
+            }#end of correctly found NA in rows
+          }#end of loop
+          
+          if (rows.removed==TRUE){
+            #remove the rows.to.remove list from Bys
+            Bys<-Bys[-rows.to.remove,]
+            warning(paste0("Some rows contain values under threshold, set at ",
+                           lum.threshold,
+                           ". Adjust lum.threshold to include."))
+          }
+          
+          
+          
+          ########
+          #Tidying the data
+          
+          #Take all the emission values per concentration and put them in new columns
+          #called emission and concentration
+          Bys<-
+            Bys |> 
+            pivot_longer(
+              #select all columns apart from the following, ie select only ones containing
+              #concentration data
+              cols = -c("Row", "Interval", "Channel","Sample","Ligand"),
+              names_to = "Concentration", 
+              values_to = "Emission",
+              values_drop_na = TRUE,
+              #make the concentration column numeric rather than a character so it will
+              #display properly on the x-axis
+              names_transform=list(Concentration=as.numeric))
+          
+          
+          #!!!It may be useful to add a step here to identify anomalous results (ie
+          #raw emission under a certain value)
+          
+          #Get the experiment ID from the name of the file. It is useful to tag the
+          #data with this in case it needs further processing with other experiments
+          Experiment_ID<-sub(".csv","", (sub("Raw data/","", Data_Path)))
+          #add a new column containing the experiment ID
+          Bys$Exp_ID<-Experiment_ID
+          
+          if (file==1){
+            BysComb<-Bys
+          } #If its the first plate it is called "BysComb"
+          
+          if (file>1){
+            BysComb<-bind_rows(BysComb,Bys)
+          } #if it isnt its added to byscomb
+        }#end of this BRET function
+      } #end of for loop for all files
+      Bys<-BysComb
+      veh<-(as.double(min(Bys$Concentration)))
+      #Save to the global environment
+      if (save.raw==TRUE){
+        Bys$Exp_MasterID<-paste0(Experiment)
+        output[["Raw"]]<-Bys
+  #      assign((paste0(Experiment,'_Raw')),Bys,envir = .GlobalEnv)
+        }
+      
+      #First split the emission values by interval and take an average, ending up
+      #with a table containing Row, Channel, Sample, Concentration, Average Well
+      #Emission and Exp_ID. Exp_ID is maintained here although it isn't used again
+      #because i feel like it might be useful (if I want to save the intermediate
+      #processed plots for example). Log_Conc is introduced here. It is in M rather
+      #than uM so uM values are divided by 10^6.
+      
+      Int_Bys<-Bys|>
+        pivot_wider(
+          names_from=Interval,
+          values_from=Emission) |>
+        group_by(Row, Channel, Sample, Concentration,Ligand,Exp_ID) |> 
+        summarise(AvWell_Emission=((Two+Three)/2),
+                  Log_Conc=log10((Concentration/10^6)))
+      
+      #Then sort the average values by channel. Take a raw ratio of Acceptor
+      #wavelength divided by Donor wavelength. Again, Exp_ID is maintained here in
+      #case this data needs to be extracted. Get() is a very useful function here
+      #as it allows you to refer to the specific value of an object, in this case
+      #the channel names of the donor and acceptor.
+      Chan_Bys<-Int_Bys|> 
+        pivot_wider(
+          names_from=Channel,
+          values_from=AvWell_Emission) |>
+        group_by(Row, Sample, Concentration,Log_Conc,Ligand,Exp_ID) |> 
+        summarise(Raw_Ratio=(get(Acceptor)/get(Donor)))
+      
+      #A new column called ratio is made and filled with zeros.
+      Chan_Bys$Ratio<-0
+      #sort by Experiment_ID. This solves previous issue of the row vehicle being
+      #set the same over the two plates
+      Chan_Bys<-(Chan_Bys[order(Chan_Bys$Exp_ID),])
+      
+      #Each well is subtracted from the control well. The code runs over every
+      #row in the Chan_Bys dataframe
+      #first check if this is a G or arrestin BRET. Default is arrestin
+      if (missing(GProt)){GProt=FALSE}
+      
+      #If arrestin...
+      if (GProt==FALSE){
+        for (row in 1:dim(Chan_Bys)[1]) {
+          #if the concentration is infinite (ie as it will be where log(10) of the 
+          #control was taken, the "Row_Vehicle" is updated to the value of that row.
+          if ((Chan_Bys$Concentration[row]==veh)){
+            Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
+          }
+          #....the "Row_Vehicle" is subtracted from each row raw_ratio
+          Chan_Bys$Ratio[row]=((Chan_Bys$Raw_Ratio[row])-(Row_Vehicle))
+        }
+      }
+      
+      #If G-Protein...
+      if (GProt==TRUE){
+        for (row in 1:dim(Chan_Bys)[1]) {
+          #if the concentration is infinite (ie as it will be where log(10) of the 
+          #control was taken, the "Row_Vehicle" is updated to the value of that row.
+          if ((Chan_Bys$Concentration[row]==veh)){
+            Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
+          }
+          #...each row raw_ratio is subtracted from the "Row_Vehicle"
+          Chan_Bys$Ratio[row]=((Row_Vehicle)-(Chan_Bys$Raw_Ratio[row]))
+        }
+      }
+      
+      #the average and standard error are taken to plot the error bars. New
+      #Experiment ID is introduced. Important in case these averages are used to
+      #combine again, needs to be consistent with mean output of BRET() function.
+      Av_Bys<-Chan_Bys|>
+        group_by(Sample,Concentration,Log_Conc,Ligand)|>
+        summarise(Exp_ID=paste0(Experiment),
+                  m_ratio=mean(Ratio),
+                  sem_ratio=sd(Ratio)/sqrt(n()))
+      
+      
+      if (save.means==TRUE){
+        Av_Bys$Exp_MasterID<-paste0(Experiment)
+  #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
+        output[["Means"]]<-Av_Bys
+        
+      }
+      if (save.processed==TRUE){
+        Chan_Bys$Exp_MasterID<-paste0(Experiment)
+   #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
+        output[["Processed"]]<-Chan_Bys
+        
+      }
+    }
+  } #end of normal BRET processing from raw data
+  
+  #IMPORT DATA from previous BRET
+  if (!missing(import.data)){
+    Experiment<-"BRET"
+    
+    for (p in 1:length(import.data)){
+      if (p==1){
+        Chan_Bys<-import.data[[1]]
+        Chan_Bys<-Chan_Bys[[1]]
+      }
+      if (p>1){
+        temp<-import.data[[p]]
+        Chan_Bys<-bind_rows(Chan_Bys,temp[[1]])
+      }
+    }
+    
+    if (import.means==TRUE){
+      names(Chan_Bys)[c(6,7)]<-c("Ratio","Error")
+      Av_Bys<-Chan_Bys|>
+        group_by(Sample,Concentration,Log_Conc,Ligand)|>
+        summarise(m_ratio=mean(Ratio),
+                  sem_ratio=sd(Ratio)/sqrt(n()))
+    }
+    
+    if (import.means==FALSE){
+      if (compare.exp==FALSE){ ##DEFAULT!
+        Av_Bys<-Chan_Bys|>
+          group_by(Sample,Concentration,Log_Conc,Ligand)|>
+          summarise(m_ratio=mean(Ratio),
+                    sem_ratio=sd(Ratio)/sqrt(n()))
+      }
+      if (compare.exp==TRUE){
+        Av_Bys<-Chan_Bys|>
+          group_by(Sample,Concentration,Log_Conc,Ligand,Exp_MasterID)|>
+          summarise(m_ratio=mean(Ratio),
+                    sem_ratio=sd(Ratio)/sqrt(n()))
+        Av_Bys<-Av_Bys|>
+          rename(Exp_ID=Exp_MasterID)
+      }
+    }
+    
+    if (save.means==TRUE){
+      Av_Bys$Exp_MasterID<-paste0(Experiment)
+      #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
+      output[["Means"]]<-Av_Bys
+      
+    }
+    if (save.processed==TRUE){
+      Chan_Bys$Exp_MasterID<-paste0(Experiment)
+      #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
+      output[["Processed"]]<-Chan_Bys
+      
+    }
+  }
+  
+  if (find.ec50==TRUE){
+    #EC50 CALCULATION
+    #part1:estimation of EC50, this creates df of estimated ec50s 
+    #set defaults
+    if (missing(save.ec50.lines)){
+      save.ec50.lines=FALSE
+    }
+    if (missing(save.curve.fit)){
+      save.curve.fit=FALSE
+    }
+    
+    #first create a dataframe of all unique sample and ligand combinations
+    if (compare.exp==FALSE){
+      VariableUnq<-as.data.frame(
+        unique(Chan_Bys[c('Sample','Ligand')]))
+    } else if (compare.exp==TRUE) {
+      VariableUnq<-as.data.frame(
+        unique(Chan_Bys[c('Sample','Ligand','Exp_MasterID')]))
+    }
+    
+    #this for loop does the entire thing, it loops over the list of unique variables
+    #and analyses the data for them one by one
+    for (var in 1:dim(VariableUnq)[1]){
+      #get the name of the sample and then the ligand
+      var2Samp<-VariableUnq[var,1]
+      var2Lig<-VariableUnq[var,2]
+      #subset by Sample
+      subs<-subset(Chan_Bys, Sample %in% var2Samp)
+      #further subset by Ligand
+      subs<-subset(subs, Ligand %in% var2Lig)
+      if (compare.exp==FALSE){
+        #save the name of the Sample + Ligand combination under var2
+        var2<-paste0(var2Samp,'+',var2Lig)
+      } else if (compare.exp==TRUE){
+        var2Exp<-VariableUnq[var,3]
+        subs<-subset(subs,Exp_MasterID %in% var2Exp)
+        var2<-paste0(var2Samp,'+',var2Lig,'+',var2Exp)
+      }
+      #create the ec50 estimate
+      {try(curve_fit<-drm(
+        #looking at ratio and concentration
+        formula=Ratio~Concentration,
+        #looking in the subs dataframe (just created as subset of Chan_Bys)
+        data=subs,
+        fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+      ))
+        
+        }
+      
+      
+      if (exists("curve_fit")){
+        VariableUnq[var,3:6]<-curve_fit$coefficients
+        ############################################     
+        #IF EC50 LABELLING LINES ARE NEEDED
+        #this will create a tribble of data for the addition of lines indicating the
+        #ec50 on the plot. Default is FALSE but will also run if highlight.ec50
+        #values are provided
+        
+        if ((save.ec50.lines==TRUE)|(!missing(highlight.ec50))){
+          #find the midpoint (ie y axis value) of the predicted values
+          
+          if (constrain.min==TRUE){
+            curve_fit$coefficients["min_value:(Intercept)"]<-0
+          }
+          
+          
+          mid<-(curve_fit$coefficients["max_value:(Intercept)"]
+                +curve_fit$coefficients["min_value:(Intercept)"])/2
+          
+          #find the pEC50: the negative log of the ec50
+          ec50<-(curve_fit$coefficients["ec_50:(Intercept)"])
+          pec50<-log10((ec50/10^6))
+          
+          #put these values into a tribble
+          ec50_plot_lines <- tribble(
+            ~x,   ~xend, ~y,   ~yend,
+            -Inf, pec50,  mid, mid,
+            pec50,pec50,mid,-Inf
+          )
+          
+          #label these rows with what the current variables are
+          
+          ec50_plot_lines$Sample<-var2Samp
+          ec50_plot_lines$Ligand<-var2Lig
+          if (compare.exp==TRUE){
+            ec50_plot_lines$Exp_MasterID<-var2Exp
+            
+          }
+          
+          ec50_plot_lines$pEC50<-pec50
+          ec50_plot_lines$EC50<-ec50
+          
+          #if this is the first variable a master list is created
+          if (var==1){ec50_lines_master<-ec50_plot_lines}
+          #if this is the second variable the values are added to the master list
+          if (var>1){ec50_lines_master<-bind_rows(ec50_lines_master,ec50_plot_lines)}
+        }
+        rm(curve_fit)
+      }#end of loop for curve_fit works & exists
+    } #end of for loop over variables
+    
+    #after the loop is complete save relevant data to the global environment
+    names(VariableUnq)[3:6]<-c("hill","min_value","max_value","ec_50")
+    output[["CurveParams"]]<-VariableUnq
+    
+    if ((save.ec50.lines==TRUE)){
+      output[["EC50Lines"]]<-ec50_lines_master
+    }
+    
+    #save ec50 table to the global environment
+    #VariableUnq$MasterExp_ID<-Experiment
+ #   assign((paste0(Experiment,'_EC50Values')),VariableUnq,envir = .GlobalEnv)
+    
+    
+    #save table of lines for graphs
+    #if (save.ec50.lines==TRUE){
+ #     assign((paste0(Experiment,'_EC50Lines_Master')),ec50_lines_master,envir = .GlobalEnv)
+      #output[["CurveParams"]]<-ec50_lines_master
+    #}#end of create ec50 labelling lines
+    
+    #SUBSET if you only want to save particular ligands or samples
+    if (!missing(subset.ligands)){
+      Av_Bys<-subset(Av_Bys,Ligand %in% subset.ligands)
+      Chan_Bys<-subset(Chan_Bys, Ligand %in% subset.ligands)
+      
+      VariableUnq<-subset(VariableUnq, Ligand %in% subset.ligands)
+      output[["CurveParams"]]<-VariableUnq
+      
+    }
+    
+    if (!missing(subset.samples)){
+      Av_Bys<-subset(Av_Bys,Sample %in% subset.samples)
+      Chan_Bys<-subset(Chan_Bys, Sample %in% subset.samples)
+      
+      VariableUnq<-subset(VariableUnq, Sample %in% subset.samples)
+      output[["CurveParams"]]<-VariableUnq
+    }
+    
+    #CREATING GRAPHS
+    if (save.plot==TRUE){
+      
+      if (constrain.min==TRUE){
+        VariableUnq$min_value<-0
+      }
+      
+      for (f in 1:dim(VariableUnq)[1]){
+        if (sum(is.na(VariableUnq[f,]))>0|(round(VariableUnq$hill[f],3)==0)){
+          VariableUnq$hill[f]<-1
+          VariableUnq$min_value[f]<-0
+          VariableUnq$max_value[f]<-0
+          VariableUnq$ec_50[f]<-1
+        }
+      }
+      
+      #standard graphs, no experiment comparisons
+      if (compare.exp==FALSE){
+        #there is only one ligand or you want to ignore extra ligands
+        if ((length(unique(VariableUnq$Ligand))==1)|(ignore.lig==TRUE)) {
+          #the agonist is set to the name of the ligand
+          if (ignore.lig==TRUE){
+            Agonist<-"Agonist"}
+          else {Agonist <- VariableUnq$Ligand[1]}
+          
+          #If there is also only one sample
+          if ((length(unique(VariableUnq$Sample))==1)){
+            bys_plot <- ggplot(data=Av_Bys,
+                               mapping=aes(x=Log_Conc,
+                                           y=m_ratio)
+            )+
+              lapply(1:dim(VariableUnq)[1], function(i){
+                eq=function(x){
+                  VariableUnq$min_value[i]+(
+                    (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                      (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                  )
+                }
+                line<-geom_function(fun=eq,
+                                    size=1.5)})
+            
+            if (data.points==TRUE){
+              bys_plot<-bys_plot+
+              #Raw data points
+              geom_point(data=Chan_Bys,
+                         mapping= aes(x=Log_Conc,
+                                      y=Ratio),
+                         shape=15)
+            }
+            
+            
+            
+          } #otherwise if there are multiple samples but only one ligand
+          else {
+            bys_plot <- ggplot(data=Av_Bys,
+                               mapping=aes(x=Log_Conc,
+                                           y=m_ratio,
+                                           colour=Sample)
+            ) +
+              lapply(1:dim(VariableUnq)[1], function(i){
+                eq=function(x){
+                  VariableUnq$min_value[i]+(
+                    (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                      (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                  )
+                }
+                line<-geom_function(fun=eq,
+                                    aes(colour=VariableUnq$Sample[i]),
+                                    size=1.5)})
+            
+            
+            if (data.points==TRUE){
+              bys_plot<-bys_plot+
+              #Raw data points
+              geom_point(data=Chan_Bys,
+                         mapping= aes(x=Log_Conc,
+                                      y=Ratio,
+                                      colour=Sample),
+                         shape=15)
+            }
+            
+          }
+          
+        }#end of only one ligand
+        else #there is more than one ligand but.....
+        {
+          Agonist <- "Agonist"
+          ##..... there is only one sample
+          if (length(unique(VariableUnq$Sample))==1){
+            #The colour is by ligand
+            bys_plot <- ggplot(data=Av_Bys,
+                               mapping=aes(x=Log_Conc,
+                                           y=m_ratio,
+                                           colour=Ligand)
+            )+
+              lapply(1:dim(VariableUnq)[1], function(i){
+                eq=function(x){
+                  VariableUnq$min_value[i]+(
+                    (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                      (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                  )
+                }
+                line<-geom_function(fun=eq,
+                                    aes(colour=VariableUnq$Ligand[i]),
+                                    size=1.5)
+              }
+              )
+            
+            if (data.points==TRUE){
+              bys_plot<-bys_plot+
+              geom_point(data=Chan_Bys,
+                         mapping= aes(x=Log_Conc,
+                                      y=Ratio,
+                                      colour=Ligand),
+                         shape=15
+              )
+            }
+            
+          }#end of there is only one sample
+          else #else there are multiple samples and multiple ligands
+          {
+            #The default is that colour will indicate ligand and shape sample
+            if (missing(colour)){colour<-"Ligand"}
+            #if you want colour to indicate the ligand
+            if (colour=="Ligand"){
+              bys_plot <- ggplot(data=Av_Bys,
+                                 mapping=aes(x=Log_Conc,
+                                             y=m_ratio,
+                                             colour=Ligand,
+                                             shape=Sample
+                                 )
+              )+
+                #if colour indicates ligand, sample will be indicated by shape
+                #and linetype
+                lapply(1:dim(VariableUnq)[1], function(i){
+                  eq=function(x){
+                    VariableUnq$min_value[i]+(
+                      (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                        (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                    )
+                  }
+                  line<-geom_function(fun=eq,
+                                      aes(colour=VariableUnq$Ligand[i],
+                                          linetype=VariableUnq$Sample[i]),
+                                      size=1.5)})
+              
+              
+              if (data.points==TRUE){
+                bys_plot<-bys_plot+
+                geom_point(data=Chan_Bys,
+                           mapping= aes(x=Log_Conc,
+                                        y=Ratio,
+                                        colour=Ligand,
+                                        shape=Sample)
+                )
+              } 
+            }#end of colour = ligand, shape = sample
+            else
+            {
+              bys_plot <- ggplot(data=Av_Bys,
+                                 mapping=aes(x=Log_Conc,
+                                             y=m_ratio,
+                                             colour=Sample,
+                                             shape=Ligand
+                                 )
+              )+
+                #if colour indicates sample, ligand will be indicated by shape
+                #and linetype
+                lapply(1:dim(VariableUnq)[1], function(i){
+                  eq=function(x){
+                    VariableUnq$min_value[i]+(
+                      (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                        (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                    )
+                    }
+                  line<-geom_function(fun=eq,
+                                      aes(colour=VariableUnq$Sample[i],
+                                          linetype=VariableUnq$Linetype[i]),
+                                      size=1.5)})
+              
+              
+              if (data.points==TRUE){
+                bys_plot<-bys_plot+
+                geom_point(data=Chan_Bys,
+                           mapping= aes(x=Log_Conc,
+                                        y=Ratio,
+                                        colour=Sample,
+                                        shape=Ligand)
+                ) 
+              }
+              
+            }#end of colour = sample, shape =ligand
+          }#end of there are multiple samples and multiple ligands
+        }#end of there is more than one ligand
+      }
+      
+      #if you're comparing between experiments this code will always set
+      #exp to colour and the other parameter to shape. It will not allow comparisons
+      #between all three parameters...
+      if (compare.exp==TRUE){
+        #First check you're not comparing three parameters. If ignore.ligand is 
+        #true this is not an issue
+        if (ignore.lig==FALSE){
+          if ((length(unique(VariableUnq$Ligand))>1)&(length(unique(VariableUnq$Sample))>1)){
+            warning("This function can not create graphs with more than two parameters.
+                Subset samples or ligands to compare experiments.")
+          }
+        }#end of warning if you're trying to make a graph comparing experiments,
+        #ligands and samples
+        
+        #there is only one ligand or you want to ignore extra ligands
+        if ((length(unique(VariableUnq$Ligand))==1)|(ignore.lig==TRUE)) {
+          #if there are multiple ligands but you're ignorning that
+          #the agonist is set to agonist
+          if (ignore.lig==TRUE){
+            Agonist<-"Agonist"}
+          
+          #otherwise the agnoist is set to the actual name of the agonist
+          else {Agonist <- VariableUnq$Ligand[1]}
+          
+          #If there is also only one sample
+          if ((length(unique(VariableUnq$Sample))==1)){
+            bys_plot <- ggplot(data=Av_Bys,
+                               mapping=aes(x=Log_Conc,
+                                           y=m_ratio,
+                                           #the colour is set to ID
+                                           colour=Exp_ID)
+            ) +
+              lapply(1:dim(VariableUnq)[1], function(i){
+                eq=function(x){
+                  VariableUnq$min_value[i]+(
+                    (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                      (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                  )
+                }
+                line<-geom_function(fun=eq,
+                                    #colour is by experiment ID
+                                    aes(colour=VariableUnq$Exp_MasterID[i]),
+                                    size=1.5)})
+            
+            
+            
+            if (data.points==TRUE){
+              bys_plot<-bys_plot+#Raw data points
+                geom_point(data=Chan_Bys,
+                           mapping= aes(x=Log_Conc,
+                                        y=Ratio,
+                                        #raw data points added by Exp_MasterID
+                                        colour=Exp_MasterID),
+                           shape=15)
+            }
+              
+            # end of [compare.exp] one ligand one sample
+          } else if ((length(unique(Av_Bys$Sample))>1)) {   #otherwise if there are MULTIPLE SAMPLES 
+            bys_plot <- ggplot(data=Av_Bys,
+                               mapping=aes(x=Log_Conc,
+                                           y=m_ratio,
+                                           colour=Exp_ID,
+                                           shape=Sample)
+            ) +
+              lapply(1:dim(VariableUnq)[1], function(i){
+                eq=function(x){
+                  VariableUnq$min_value[i]+(
+                    (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                      (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+                  )
+                }
+                line<-geom_function(fun=eq,
+                                    #colour is by experiment ID, linetype is by sample
+                                    aes(colour=VariableUnq$Exp_MasterID[i],
+                                        linetype=VariableUnq$Sample[i]),
+                                    size=1.5)})
+            
+            if (data.points==TRUE){
+              bys_plot<-bys_plot+
+              #Raw data points
+              geom_point(data=Chan_Bys,
+                         mapping= aes(x=Log_Conc,
+                                      y=Ratio,
+                                      colour=Exp_MasterID,
+                                      shape=Sample))
+            }
+            
+            
+          } #end of [compare.exp] one ligand multiple samples
+          #end of [compare.exp] only one ligand
+        } else if ((length(unique(Av_Bys$Ligand))>1)) #there are MUTLIPLE LIGANDS (therefore only one sample)
+        {Agonist <- "Agonist"
+        #The colour is by ligand
+        output$data<-Av_Bys
+        output$line<-predicted_curves
+        output$points<-Chan_Bys
+        
+        bys_plot <- ggplot(data=Av_Bys,
+                           mapping=aes(x=Log_Conc,
+                                       y=m_ratio,
+                                       colour=Exp_ID,
+                                       shape=Ligand)
+        )+
+          lapply(1:dim(VariableUnq)[1], function(i){
+            eq=function(x){
+              VariableUnq$min_value[i]+(
+                (VariableUnq$max_value[i]-VariableUnq$min_value[i])/
+                  (1+10^((x-(log10(((VariableUnq$ec_50[i])/10^6))))*VariableUnq$hill[i]))
+              )
+            }
+            line<-geom_function(fun=eq,
+                                #colour is by experiment ID, linetype is by ligand
+                                aes(colour=VariableUnq$Exp_MasterID[i],
+                                    linetype=VariableUnq$Ligand[i]),
+                                size=1.5)})
+        
+        if (data.points==TRUE){
+          bys_plot<-bys_plot+
+          geom_point(data=Chan_Bys,
+                     mapping= aes(x=Log_Conc,
+                                  y=Ratio,
+                                  shape=Exp_MasterID,
+                                  colour=Ligand)
+          )
+        }
+        
+        }#end of [compare.exp] there are multiple ligands therefore one sample
+      }# end of compare.exp
+      
+      
+      
+      
+      #format the graph
+      bys_plot<-bys_plot+
+        #Automatic colours are dark2 palette 
+        scale_color_brewer(palette='Dark2') +
+        #Labels, the x-axis can be labelled with the specific agonist 
+        xlab(paste0('Log[',Agonist,'] M')) +
+        ylab('BRET Ratio (Relative to Control)') +
+        #error bars are standard error
+        geom_errorbar(aes(ymin = m_ratio - sem_ratio,
+                          ymax = m_ratio + sem_ratio),
+                      width = 0.3)+
+        #title is the experiment ID
+        #ggtitle((paste0('Experiment: ',Experiment)))+
+        #scale x axis
+        scale_x_continuous(n.breaks=0.5*length(unique(Av_Bys$Concentration)))+
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+              panel.background = element_blank(), axis.line = element_line(colour = "black"),
+              axis.text.x=element_text(size=12, face="bold"),
+              axis.text.y=element_text(size=12, face="bold"))+
+        ylim(-0.03,0.20)+
+        xlim((round((log10(((as.numeric(min(Concentrations[1:11])))/10^6))),1)-0.25),
+             (round((log10(((as.numeric(max(Concentrations[1:11])))/10^6))),1)+0.25))+ 
+        theme(legend.position = c(0.2,0.75))
+      
+      if (data.points==FALSE){
+        bys_plot<-bys_plot+
+          geom_point(size=3,shape=15)
+      }
+      
+      if (!missing(highlight.ec50)){
+        #create a subset list of the EC50 lines. first split the sample and ligand
+        for (lin in 1:length(highlight.ec50)){
+          #split the string and extract it as a normal list
+          to.highlight<-strsplit(highlight.ec50[lin],"[+]")
+          to.highlight<-to.highlight[[1]]
+          
+          #reset each highlight to the full list of variables
+          samp.highlight<-as.list(ec50_lines_master$Sample)
+          lig.highlight<-as.list(ec50_lines_master$Ligand)
+          if (compare.exp==TRUE){
+          exp.highlight<-as.list(ec50_lines_master$Exp_MasterID)}
+          
+          #work out what each variable is and overwrite the full list with
+          #the specific if it applies
+          for (lin2 in 1:length(to.highlight)){
+            if (to.highlight[lin2] %in% ec50_lines_master$Sample){
+              samp.highlight<-to.highlight[lin2]
+            }
+            if (to.highlight[lin2] %in% ec50_lines_master$Ligand){
+              lig.highlight<-to.highlight[lin2]
+            }
+            if (compare.exp==TRUE){
+            if (to.highlight[lin2] %in% ec50_lines_master$Exp_MasterID){
+              exp.highlight<-to.highlight[lin2]
+            }
+            }
+          }
+          
+          #apply the filter
+          if (compare.exp==FALSE){
+            active.lines.temp<-ec50_lines_master|>
+              filter(
+                Sample==samp.highlight,
+                Ligand==lig.highlight
+              )
+          } else if (comoare.exp==TRUE){
+            active.lines.temp<-ec50_lines_master|>
+              filter(
+                Sample==samp.highlight,
+                Ligand==lig.highlight,
+                Exp_MasterID==exp.highlight
+              ) 
+            }
+          
+          #if this is the first loop it is called the master list
+          if (lin==1){
+            active.lines<-active.lines.temp}
+          #if this is the second loop this list is added to the master list
+          if(lin==2){
+            active.lines<-bind_rows(active.lines,active.lines.temp)}
+          if (lin==3){
+          }
+        }
+        
+        #the segments are added to the plot
+        bys_plot<-bys_plot+
+          geom_segment(
+            data=active.lines,
+            aes(x=x,y=y,xend=xend,yend=yend),
+            colour='grey',linetype='dashed',size=1
+          )
+        #a shorter list is created to eliminate duplicates (ie where the x points
+        #start and the ys end)
+        labs<-unique(active.lines[c('y','Sample','Ligand','EC50')])
+        
+        #for each row of this list....
+        for (lab in 1:dim(labs)[1]){
+          bys_plot<-bys_plot+
+            #... the point on the y axis the line is drawn is found, and the label
+            #is put there
+            annotate('text',x=-10,y=as.double(labs$y[lab]),
+                     #the EC50 value is used, rounded to 2dp.
+                     label=paste0("EC50: ",round(labs$EC50[lab],2),"μM"),
+                     hjust=0,
+                     vjust=-1)
+        }
+      }#end of add ec50 labels
+      #save the graph
+ #     assign((paste0(Experiment,'_Plot')),bys_plot,envir = .GlobalEnv)
+      output[["Plot"]]<-bys_plot
+    }#end of graphs
+  }#end of ec50 calculations
+  return(output)
+}#end of function
+
+
+
