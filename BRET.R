@@ -181,6 +181,21 @@ BRET<-function(Experiment,
             
           #first checks the correct number of concentrations have been supplied and
           #if not ends the function and prints error message
+          if (length(Concentrations)==2){
+            conc_1<-as.numeric(Concentrations[1])
+            conc_2<-as.numeric(Concentrations[2])
+            Concentrations[3]<-conc_1*10^-1
+            Concentrations[4]<-conc_2*10^-1
+            Concentrations[5]<-conc_1*10^-2
+            Concentrations[6]<-conc_2*10^-2
+            Concentrations[7]<-conc_1*10^-3
+            Concentrations[8]<-conc_2*10^-3
+            Concentrations[9]<-conc_1*10^-4
+            Concentrations[10]<-conc_2*10^-4
+            Concentrations[11]<-conc_1*10^-5
+            Concentrations[12]<-0
+          }
+          
           if (!length(Concentrations)==12){
             stop("Wrong number of concentrations supplied")
           } else {names(Bys)[1]<-"Row"
