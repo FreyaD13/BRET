@@ -43,7 +43,8 @@ BRET<-function(Experiment,
                compare.exp=FALSE,
                data.points=TRUE,
                set.line.resolution=0.001,
-               constrain.min=TRUE
+               constrain.min=TRUE,
+               ec_f #to calculate eg. ec75
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -549,7 +550,6 @@ BRET<-function(Experiment,
         data=subs,
         fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
       ))
-        
         }
       
       
@@ -604,41 +604,42 @@ BRET<-function(Experiment,
       }#end of loop for curve_fit works & exists
     } #end of for loop over variables
     
-    #after the loop is complete save relevant data to the global environment
+    
     names(VariableUnq)[3:6]<-c("hill","min_value","max_value","ec_50")
-    output[["CurveParams"]]<-VariableUnq
+
+    #after the loop is complete first subset if relevant and then
+    #save relevant data to the global environment
     
-    if ((save.ec50.lines==TRUE)){
-      output[["EC50Lines"]]<-ec50_lines_master
-    }
-    
-    #save ec50 table to the global environment
-    #VariableUnq$MasterExp_ID<-Experiment
- #   assign((paste0(Experiment,'_EC50Values')),VariableUnq,envir = .GlobalEnv)
-    
-    
-    #save table of lines for graphs
-    #if (save.ec50.lines==TRUE){
- #     assign((paste0(Experiment,'_EC50Lines_Master')),ec50_lines_master,envir = .GlobalEnv)
-      #output[["CurveParams"]]<-ec50_lines_master
-    #}#end of create ec50 labelling lines
-    
-    #SUBSET if you only want to save particular ligands or samples
     if (!missing(subset.ligands)){
       Av_Bys<-subset(Av_Bys,Ligand %in% subset.ligands)
       Chan_Bys<-subset(Chan_Bys, Ligand %in% subset.ligands)
-      
       VariableUnq<-subset(VariableUnq, Ligand %in% subset.ligands)
-      output[["CurveParams"]]<-VariableUnq
-      
+      if ((save.ec50.lines==TRUE)){
+        ec50_lines_master<-subset(ec50_lines_master, Ligand %in% subset.ligands)
+      }
     }
     
     if (!missing(subset.samples)){
       Av_Bys<-subset(Av_Bys,Sample %in% subset.samples)
       Chan_Bys<-subset(Chan_Bys, Sample %in% subset.samples)
-      
       VariableUnq<-subset(VariableUnq, Sample %in% subset.samples)
-      output[["CurveParams"]]<-VariableUnq
+      if ((save.ec50.lines==TRUE)){
+        ec50_lines_master<-subset(ec50_lines_master, Sample %in% subset.ligands)
+      }
+    }
+    
+    VariableUnq$pec_50<-log10(VariableUnq$ec_50/(10^6))
+    
+    #Add Ec75 or other details
+    if (!missing(ec_f)){
+      VariableUnq[paste0("EC",ec_f)]<-VariableUnq$ec_50*((ec_f/(100-ec_f))^(1/-VariableUnq$hill))
+      VariableUnq[paste0("pEC",ec_f)]<-log10(VariableUnq$ec_50*((ec_f/(100-ec_f))^(1/-VariableUnq$hill))/(10^6))
+    }
+    
+    output[["CurveParams"]]<-VariableUnq
+    
+    if ((save.ec50.lines==TRUE)){
+      output[["EC50Lines"]]<-ec50_lines_master
     }
     
     #CREATING GRAPHS
