@@ -44,7 +44,8 @@ BRET<-function(Experiment,
                data.points=TRUE,
                set.line.resolution=0.001,
                constrain.min=TRUE,
-               ec_f #to calculate eg. ec75
+               ec_f, #to calculate eg. ec75
+               error.bars=TRUE
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -931,10 +932,6 @@ BRET<-function(Experiment,
         } else if ((length(unique(Av_Bys$Ligand))>1)) #there are MUTLIPLE LIGANDS (therefore only one sample)
         {Agonist <- "Agonist"
         #The colour is by ligand
-        output$data<-Av_Bys
-        output$line<-predicted_curves
-        output$points<-Chan_Bys
-        
         bys_plot <- ggplot(data=Av_Bys,
                            mapping=aes(x=Log_Conc,
                                        y=m_ratio,
@@ -977,10 +974,6 @@ BRET<-function(Experiment,
         #Labels, the x-axis can be labelled with the specific agonist 
         xlab(paste0('Log[',Agonist,'] M')) +
         ylab('BRET Ratio (Relative to Control)') +
-        #error bars are standard error
-        geom_errorbar(aes(ymin = m_ratio - sem_ratio,
-                          ymax = m_ratio + sem_ratio),
-                      width = 0.3)+
         #title is the experiment ID
         #ggtitle((paste0('Experiment: ',Experiment)))+
         #scale x axis
@@ -989,14 +982,33 @@ BRET<-function(Experiment,
               panel.background = element_blank(), axis.line = element_line(colour = "black"),
               axis.text.x=element_text(size=12, face="bold"),
               axis.text.y=element_text(size=12, face="bold"))+
-        ylim(-0.03,0.20)+
         xlim((round((log10(((as.numeric(min(Concentrations[1:11])))/10^6))),1)-0.25),
              (round((log10(((as.numeric(max(Concentrations[1:11])))/10^6))),1)+0.25))+ 
-        theme(legend.position = c(0.2,0.75))
+        theme(legend.position = c(0.2,0.75))+
+        ylim(-0.03,0.20)
       
       if (data.points==FALSE){
         bys_plot<-bys_plot+
           geom_point(size=3,shape=15)
+      }
+      
+      ##set y lims based on whether g prot or bystander
+      if (!missing(GProt)){
+        if (GProt==TRUE){
+          bys_plot<-bys_plot+
+            ylim(-0.03,0.20)
+          } else if (GProt==FALSE){
+            bys_plot<-bys_plot+
+              ylim(-0.015,0.10)
+          }
+        }
+      
+      if (error.bars==TRUE){
+        bys_plot<-bys_plot+
+          #error bars are standard error
+          geom_errorbar(aes(ymin = m_ratio - sem_ratio,
+                            ymax = m_ratio + sem_ratio),
+                        width = 0.3)
       }
       
       if (!missing(highlight.ec50)){
