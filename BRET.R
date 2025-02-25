@@ -44,7 +44,8 @@ BRET<-function(Experiment,
                data.points=TRUE,
                set.line.resolution=0.001,
                constrain.min=TRUE,
-               ec_f #to calculate eg. ec75
+               ec_f, #to calculate eg. ec75
+               error.bars=TRUE
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -436,17 +437,17 @@ BRET<-function(Experiment,
       
       
       if (save.means==TRUE){
-        Av_Bys$Exp_MasterID<-paste0(Experiment)
-  #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
-        output[["Means"]]<-Av_Bys
-        
-      }
-      if (save.processed==TRUE){
-        Chan_Bys$Exp_MasterID<-paste0(Experiment)
-   #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
-        output[["Processed"]]<-Chan_Bys
-        
-      }
+      Av_Bys$Exp_MasterID<-paste0(Experiment)
+      #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
+      output[["Means"]]<-Av_Bys
+      
+    }
+    if (save.processed==TRUE){
+      Chan_Bys$Exp_MasterID<-paste0(Experiment)
+      #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
+      output[["Processed"]]<-Chan_Bys
+      
+    }
     }
   } #end of normal BRET processing from raw data
   
@@ -931,10 +932,6 @@ BRET<-function(Experiment,
         } else if ((length(unique(Av_Bys$Ligand))>1)) #there are MUTLIPLE LIGANDS (therefore only one sample)
         {Agonist <- "Agonist"
         #The colour is by ligand
-        output$data<-Av_Bys
-        output$line<-predicted_curves
-        output$points<-Chan_Bys
-        
         bys_plot <- ggplot(data=Av_Bys,
                            mapping=aes(x=Log_Conc,
                                        y=m_ratio,
@@ -968,19 +965,18 @@ BRET<-function(Experiment,
       }# end of compare.exp
       
       
-      
-      
       #format the graph
+      
+      #find min& max concentrations for scaling
+      min.conc<-min(Av_Bys$Concentration[Av_Bys$Concentration>0])
+      max.conc<-max(Av_Bys$Concentration)
+      
       bys_plot<-bys_plot+
         #Automatic colours are dark2 palette 
         scale_color_brewer(palette='Dark2') +
         #Labels, the x-axis can be labelled with the specific agonist 
         xlab(paste0('Log[',Agonist,'] M')) +
         ylab('BRET Ratio (Relative to Control)') +
-        #error bars are standard error
-        geom_errorbar(aes(ymin = m_ratio - sem_ratio,
-                          ymax = m_ratio + sem_ratio),
-                      width = 0.3)+
         #title is the experiment ID
         #ggtitle((paste0('Experiment: ',Experiment)))+
         #scale x axis
@@ -989,14 +985,43 @@ BRET<-function(Experiment,
               panel.background = element_blank(), axis.line = element_line(colour = "black"),
               axis.text.x=element_text(size=12, face="bold"),
               axis.text.y=element_text(size=12, face="bold"))+
-        ylim(-0.03,0.20)+
-        xlim((round((log10(((as.numeric(min(Concentrations[1:11])))/10^6))),1)-0.25),
-             (round((log10(((as.numeric(max(Concentrations[1:11])))/10^6))),1)+0.25))+ 
-        theme(legend.position = c(0.2,0.75))
+        xlim((round((log10(((as.numeric(min.conc))/10^6))),1)-0.25),
+             (round((log10(((as.numeric(max.conc))/10^6))),1)+0.25))+ 
+        theme(legend.position = c(0.2,0.75))+
+        ylim(-0.03,0.20)
       
       if (data.points==FALSE){
         bys_plot<-bys_plot+
           geom_point(size=3,shape=15)
+      }
+      
+      ##set y lims based on whether g prot or bystander
+      if (!missing(GProt)){
+        if (GProt==TRUE){
+          bys_plot<-bys_plot+
+            ylim(-0.03,0.20)
+          } else if (GProt==FALSE){
+            bys_plot<-bys_plot+
+              ylim(-0.015,0.10)
+          }
+      }
+      
+      if (missing(GProt)){
+        if (max(Av_Bys$m_ratio>0.1)){
+          bys_plot<-bys_plot+
+            ylim(-0.03,0.20)
+        } else if (max(Av_Bys$m_ratio<0.1)) {
+          bys_plot<-bys_plot+
+            ylim(-0.015,0.10)
+        }
+      }
+      
+      if (error.bars==TRUE){
+        bys_plot<-bys_plot+
+          #error bars are standard error
+          geom_errorbar(aes(ymin = m_ratio - sem_ratio,
+                            ymax = m_ratio + sem_ratio),
+                        width = 0.3)
       }
       
       if (!missing(highlight.ec50)){
