@@ -45,7 +45,8 @@ BRET<-function(Experiment,
                set.line.resolution=0.001,
                constrain.min=TRUE,
                ec_f, #to calculate eg. ec75
-               error.bars=TRUE
+               error.bars=TRUE,
+               subset.output=TRUE
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -434,20 +435,6 @@ BRET<-function(Experiment,
         summarise(Exp_ID=paste0(Experiment),
                   m_ratio=mean(Ratio),
                   sem_ratio=sd(Ratio)/sqrt(n()))
-      
-      
-      if (save.means==TRUE){
-      Av_Bys$Exp_MasterID<-paste0(Experiment)
-      #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
-      output[["Means"]]<-Av_Bys
-      
-    }
-    if (save.processed==TRUE){
-      Chan_Bys$Exp_MasterID<-paste0(Experiment)
-      #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
-      output[["Processed"]]<-Chan_Bys
-      
-    }
     }
   } #end of normal BRET processing from raw data
   
@@ -490,20 +477,42 @@ BRET<-function(Experiment,
           rename(Exp_ID=Exp_MasterID)
       }
     }
-    
+  }
+  
+  if (subset.output==FALSE){
     if (save.means==TRUE){
       Av_Bys$Exp_MasterID<-paste0(Experiment)
-      #      assign((paste0(Experiment,'_Means')),Av_Bys,envir = .GlobalEnv)
       output[["Means"]]<-Av_Bys
       
     }
     if (save.processed==TRUE){
       Chan_Bys$Exp_MasterID<-paste0(Experiment)
-      #     assign((paste0(Experiment,'_Processed')),Chan_Bys,envir = .GlobalEnv)
       output[["Processed"]]<-Chan_Bys
-      
     }
   }
+  
+  if (!missing(subset.ligands)){
+    Av_Bys<-subset(Av_Bys,Ligand %in% subset.ligands)
+    Chan_Bys<-subset(Chan_Bys, Ligand %in% subset.ligands)
+  }
+  
+  if (!missing(subset.samples)){
+    Av_Bys<-subset(Av_Bys,Sample %in% subset.samples)
+    Chan_Bys<-subset(Chan_Bys, Sample %in% subset.samples)
+  }
+  
+  if (subset.output==TRUE){
+    if (save.means==TRUE){
+      Av_Bys$Exp_MasterID<-paste0(Experiment)
+      output[["Means"]]<-Av_Bys
+      
+    }
+    if (save.processed==TRUE){
+      Chan_Bys$Exp_MasterID<-paste0(Experiment)
+      output[["Processed"]]<-Chan_Bys
+    }
+  }
+  
   
   if (find.ec50==TRUE){
     #EC50 CALCULATION
@@ -612,8 +621,6 @@ BRET<-function(Experiment,
     #save relevant data to the global environment
     
     if (!missing(subset.ligands)){
-      Av_Bys<-subset(Av_Bys,Ligand %in% subset.ligands)
-      Chan_Bys<-subset(Chan_Bys, Ligand %in% subset.ligands)
       VariableUnq<-subset(VariableUnq, Ligand %in% subset.ligands)
       if ((save.ec50.lines==TRUE)){
         ec50_lines_master<-subset(ec50_lines_master, Ligand %in% subset.ligands)
@@ -621,8 +628,6 @@ BRET<-function(Experiment,
     }
     
     if (!missing(subset.samples)){
-      Av_Bys<-subset(Av_Bys,Sample %in% subset.samples)
-      Chan_Bys<-subset(Chan_Bys, Sample %in% subset.samples)
       VariableUnq<-subset(VariableUnq, Sample %in% subset.samples)
       if ((save.ec50.lines==TRUE)){
         ec50_lines_master<-subset(ec50_lines_master, Sample %in% subset.ligands)
