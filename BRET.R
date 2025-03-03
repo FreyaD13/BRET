@@ -46,7 +46,9 @@ BRET<-function(Experiment,
                constrain.min=TRUE,
                ec_f, #to calculate eg. ec75
                error.bars=TRUE,
-               subset.output=TRUE
+               subset.output=TRUE,
+               set.control.well,
+               set.control.row
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -396,37 +398,56 @@ BRET<-function(Experiment,
       #set the same over the two plates
       Chan_Bys<-(Chan_Bys[order(Chan_Bys$Exp_ID),])
       
-      #Each well is subtracted from the control well. The code runs over every
-      #row in the Chan_Bys dataframe
-      #first check if this is a G or arrestin BRET. Default is arrestin
-      if (missing(GProt)){GProt=FALSE}
+      output[["PreNormalisedData"]]<-Chan_Bys
+      #Each well is normalised to the control The code runs over every
+      #row in the Chan_Bys dataframe.
+
+      #if the data needs to be normalised to a specific row or well first the 
+      #data will be filtered to find those wells if a specific well, the data 
+      #is filtered based first off the row (ie the Ligand or Sample specified) 
+      #and then the control well(s) is/are taken and averaged
       
-      #If arrestin...
-      if (GProt==FALSE){
-        for (row in 1:dim(Chan_Bys)[1]) {
-          #if the concentration is infinite (ie as it will be where log(10) of the 
-          #control was taken, the "Row_Vehicle" is updated to the value of that row.
-          if ((Chan_Bys$Concentration[row]==veh)){
-            Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
+      if (!missing(set.control.well)){
+        control.ratio<-
+          mean((filter(Chan_Bys,Ligand==set.control.well|Sample==set.control.well, 
+                       Concentration==0))$Raw_Ratio)
+      }
+      
+      #if the data should be normalised to an entire row, that row (based off sample/ligand name) is found and averaged 
+      if (!missing(set.control.row)){
+        control.ratio<-
+          mean((filter(Chan_Bys,Ligand==set.control.row|Sample==set.control.well))$Raw_Ratio)
+      }
+      
+      for (row in 1:dim(Chan_Bys)[1]){
+        if (exists("control.ratio")){
+          if (GProt==FALSE){
+            Chan_Bys$Ratio[row]=((Chan_Bys$Raw_Ratio[row])-(control.ratio))
+          } else if (GProt==TRUE){
+            Chan_Bys$Ratio[row]=((control.ratio)-(Chan_Bys$Raw_Ratio[row]))
+          } #end of g prot specific well
+        } #end of normalise to specific row/well
+        
+        if (!exists("control.ratio")){
+          if (GProt==FALSE){
+            if ((Chan_Bys$Concentration[row]==veh)){
+              Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
+            }
+            #...each row raw_ratio is subtracted from the "Row_Vehicle"
+            Chan_Bys$Ratio[row]=((Chan_Bys$Raw_Ratio[row])-(Row_Vehicle))
+          } else if (GProt==TRUE){
+            if ((Chan_Bys$Concentration[row]==veh)){
+              Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
+            }
+            #...each row raw_ratio is subtracted from the "Row_Vehicle"
+            Chan_Bys$Ratio[row]=((Row_Vehicle)-(Chan_Bys$Raw_Ratio[row]))
           }
-          #....the "Row_Vehicle" is subtracted from each row raw_ratio
-          Chan_Bys$Ratio[row]=((Chan_Bys$Raw_Ratio[row])-(Row_Vehicle))
         }
       }
       
-      #If G-Protein...
-      if (GProt==TRUE){
-        for (row in 1:dim(Chan_Bys)[1]) {
-          #if the concentration is infinite (ie as it will be where log(10) of the 
-          #control was taken, the "Row_Vehicle" is updated to the value of that row.
-          if ((Chan_Bys$Concentration[row]==veh)){
-            Row_Vehicle<-Chan_Bys$Raw_Ratio[row]
-          }
-          #...each row raw_ratio is subtracted from the "Row_Vehicle"
-          Chan_Bys$Ratio[row]=((Row_Vehicle)-(Chan_Bys$Raw_Ratio[row]))
-        }
-      }
       
+      
+    
       #the average and standard error are taken to plot the error bars. New
       #Experiment ID is introduced. Important in case these averages are used to
       #combine again, needs to be consistent with mean output of BRET() function.
@@ -998,6 +1019,11 @@ BRET<-function(Experiment,
       if (data.points==FALSE){
         bys_plot<-bys_plot+
           geom_point(size=3,shape=15)
+      }
+      
+      if (exists("control.ratio")){
+        bys_plot<-bys_plot+
+          theme(legend.position = c(0.2,0.5))
       }
       
       ##set y lims based on whether g prot or bystander
