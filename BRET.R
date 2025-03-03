@@ -43,7 +43,7 @@ BRET<-function(Experiment,
                compare.exp=FALSE,
                data.points=TRUE,
                set.line.resolution=0.001,
-               constrain.min=TRUE,
+               constrain.lims=TRUE,
                ec_f, #to calculate eg. ec75
                error.bars=TRUE,
                subset.output=TRUE,
@@ -595,7 +595,7 @@ BRET<-function(Experiment,
         if ((save.ec50.lines==TRUE)|(!missing(highlight.ec50))){
           #find the midpoint (ie y axis value) of the predicted values
           
-          if (constrain.min==TRUE){
+          if (constrain.lims==TRUE){
             curve_fit$coefficients["min_value:(Intercept)"]<-0
           }
           
@@ -672,10 +672,33 @@ BRET<-function(Experiment,
     #CREATING GRAPHS
     if (save.plot==TRUE){
       
-      if (constrain.min==TRUE){
-        VariableUnq$min_value<-0
+      if (constrain.lims==TRUE){
+        mean.max<-mean(filter(VariableUnq,hill>0)$max_value)
+        for (f in 1:dim(VariableUnq)[1]){
+          #if hill is over 0 for some reason this is a negative curve so the max must
+          #be constrained
+          if (VariableUnq$hill[f]>0){
+            VariableUnq$max_value[f]<-mean.max
+            #but if its under then its a positive curve so the max should be constrained
+          } else if (VariableUnq$hill[f]<0){
+            VariableUnq$min_value[f]<-0
+          }
+        }
       }
       
+      
+      # 
+      # if (exists("control.ratio")){
+      #   constrain.lims=FALSE
+      #   VariableUnq$max_value<-0
+      # }
+      # 
+      # if (constrain.lims==TRUE){
+      #   VariableUnq$min_value<-0
+      # }
+      # 
+      #set parameters if there is no curve available (ie. if the line 
+      #should be flat)
       for (f in 1:dim(VariableUnq)[1]){
         if (sum(is.na(VariableUnq[f,]))>0|(round(VariableUnq$hill[f],3)==0)){
           VariableUnq$hill[f]<-1
