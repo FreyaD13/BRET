@@ -118,6 +118,19 @@ BRET<-function(Experiment,
         Ligands<-plate.layouts[[Experiment]]$Ligands
       }
       
+      #apply any additional settings from the plate data
+      if (!is.null(plate.layouts[[Experiment]]$set.control.well)){
+        set.control.well<-plate.layouts[[Experiment]]$set.control.well
+      }
+      
+      if (!is.null(plate.layouts[[Experiment]]$set.control.row)){
+        set.control.row<-plate.layouts[[Experiment]]$set.control.row
+      }
+      
+      if (!is.null(plate.layouts[[Experiment]]$lum.threshold)){
+        lum.threshold<-plate.layouts[[Experiment]]$lum.threshold
+      }
+      
       #set a Samples and Ligands source that wont be changed by looping
       SamplesSource<-Samples
       SamplesDims<-dim(data.frame(Samples))[2]
@@ -398,7 +411,6 @@ BRET<-function(Experiment,
       #set the same over the two plates
       Chan_Bys<-(Chan_Bys[order(Chan_Bys$Exp_ID),])
       
-      output[["PreNormalisedData"]]<-Chan_Bys
       #Each well is normalised to the control The code runs over every
       #row in the Chan_Bys dataframe.
 
@@ -552,8 +564,10 @@ BRET<-function(Experiment,
         unique(Chan_Bys[c('Sample','Ligand')]))
     } else if (compare.exp==TRUE) {
       VariableUnq<-as.data.frame(
-        unique(Chan_Bys[c('Sample','Ligand','Exp_MasterID')]))
+        unique(Chan_Bys[c('Sample','Ligand','Exp_ID')]))
     }
+    
+    output[["vaunq"]]<-VariableUnq
     
     #this for loop does the entire thing, it loops over the list of unique variables
     #and analyses the data for them one by one
@@ -567,11 +581,11 @@ BRET<-function(Experiment,
       subs<-subset(subs, Ligand %in% var2Lig)
       if (compare.exp==FALSE){
         #save the name of the Sample + Ligand combination under var2
-        var2<-paste0(var2Samp,'+',var2Lig)
+        var2<-paste0(var2Samp,'+',var2Lig) ####NOT SURE IF NECESSARY
       } else if (compare.exp==TRUE){
         var2Exp<-VariableUnq[var,3]
-        subs<-subset(subs,Exp_MasterID %in% var2Exp)
-        var2<-paste0(var2Samp,'+',var2Lig,'+',var2Exp)
+        subs<-subset(subs,Exp_ID %in% var2Exp)
+        var2<-paste0(var2Samp,'+',var2Lig,'+',var2Exp) #NOT SURE IF NECESSARY
       }
       #create the ec50 estimate
       {try(curve_fit<-drm(
