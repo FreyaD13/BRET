@@ -1,4 +1,5 @@
 BRET<-function(Experiment,
+               Figure,
                import.data,
                Directory="Raw data/",
                lum.threshold=1000,
@@ -32,14 +33,14 @@ BRET<-function(Experiment,
                subset.ligands,
                subset.samples,
                highlight.ec50,
-               #import.means and compare.exp are false by default meaning that
+               #CHANGED DEFAULT DESCRIPTION IS OLD;import.means and compare.exp are false by default meaning that
                #each data point will be treated as one data point in the final result
                #if compare.exp is set to true, all data points will still be
                #shown but results will be seperated by experiment
                #if import.means is set to true, the means from each experiment become
                #the new data points. this is necessary for avoiding pseudoreplication;
                #each experiment= 1 data point/1 replicate
-               import.means=FALSE,
+               import.means=TRUE,
                compare.exp=FALSE,
                data.points=TRUE,
                set.line.resolution=0.001,
@@ -51,6 +52,11 @@ BRET<-function(Experiment,
                set.control.row,
                constrain.hill=FALSE
 ){#Set universal defaults
+  
+  if (!missing(Figure)){
+    import.data<-BRETMultiple(Figure=Figure)
+    import.means=TRUE
+  }
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
     find.ec50=TRUE
@@ -547,6 +553,8 @@ BRET<-function(Experiment,
     }
   }
   
+  ########THIS POINT TO NORMALISE
+  
   
   if (find.ec50==TRUE){
     #EC50 CALCULATION
@@ -659,10 +667,6 @@ BRET<-function(Experiment,
       names(VariableUnq)[4:7]<-c("hill","min_value","max_value","ec_50")
     }
     
-    output[["vaunq"]]<-VariableUnq
-    
-    
-
     #after the loop is complete first subset if relevant and then
     #save relevant data to the global environment
     
@@ -697,6 +701,19 @@ BRET<-function(Experiment,
     #CREATING GRAPHS
     if (save.plot==TRUE){
       
+      
+      #set parameters if there is no curve available (ie. if the line 
+      #should be flat). important to do this before setting constraints
+      for (f in 1:dim(VariableUnq)[1]){
+        if (sum(is.na(VariableUnq[f,]))>0|(round(VariableUnq$hill[f],3)==0)){
+          VariableUnq$hill[f]<-1
+          VariableUnq$min_value[f]<-0
+          VariableUnq$max_value[f]<-0
+          VariableUnq$ec_50[f]<-1
+        }
+        #    VariableUnq$hill[f]<-(-1)
+      }
+      
       if (constrain.lims==TRUE){
         mean.max<-mean(filter(VariableUnq,hill>0)$max_value)
         for (f in 1:dim(VariableUnq)[1]){
@@ -707,6 +724,19 @@ BRET<-function(Experiment,
             #but if its under then its a positive curve so the max should be constrained
           } else if (VariableUnq$hill[f]<0){
             VariableUnq$min_value[f]<-0
+          }
+        }
+      }
+      
+      if (constrain.hill==TRUE){
+        for (f in 1:dim(VariableUnq)[1]){
+          #if hill is over 0 for some reason this is a negative curve so the max must
+          #be constrained
+          if (VariableUnq$hill[f]>0){
+            VariableUnq$hill[f]<-1
+            #but if its under then its a positive curve so the max should be constrained
+          } else if (VariableUnq$hill[f]<0){
+            VariableUnq$hill[f]<-(-1)
           }
         }
       }
@@ -722,17 +752,8 @@ BRET<-function(Experiment,
       #   VariableUnq$min_value<-0
       # }
       # 
-      #set parameters if there is no curve available (ie. if the line 
-      #should be flat)
-      for (f in 1:dim(VariableUnq)[1]){
-        if (sum(is.na(VariableUnq[f,]))>0|(round(VariableUnq$hill[f],3)==0)){
-          VariableUnq$hill[f]<-1
-          VariableUnq$min_value[f]<-0
-          VariableUnq$max_value[f]<-0
-          VariableUnq$ec_50[f]<-1
-        }
-    #    VariableUnq$hill[f]<-(-1)
-      }
+      
+     
       
       #standard graphs, no experiment comparisons
       if (compare.exp==FALSE){
