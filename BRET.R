@@ -48,7 +48,8 @@ BRET<-function(Experiment,
                error.bars=TRUE,
                subset.output=TRUE,
                set.control.well,
-               set.control.row
+               set.control.row,
+               constrain.hill=FALSE
 ){#Set universal defaults
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -567,26 +568,18 @@ BRET<-function(Experiment,
         unique(Chan_Bys[c('Sample','Ligand','Exp_ID')]))
     }
     
-    output[["vaunq"]]<-VariableUnq
     
     #this for loop does the entire thing, it loops over the list of unique variables
     #and analyses the data for them one by one
     for (var in 1:dim(VariableUnq)[1]){
-      #get the name of the sample and then the ligand
-      var2Samp<-VariableUnq[var,1]
-      var2Lig<-VariableUnq[var,2]
-      #subset by Sample
-      subs<-subset(Chan_Bys, Sample %in% var2Samp)
-      #further subset by Ligand
-      subs<-subset(subs, Ligand %in% var2Lig)
+     
       if (compare.exp==FALSE){
-        #save the name of the Sample + Ligand combination under var2
-        var2<-paste0(var2Samp,'+',var2Lig) ####NOT SURE IF NECESSARY
-      } else if (compare.exp==TRUE){
-        var2Exp<-VariableUnq[var,3]
-        subs<-subset(subs,Exp_ID %in% var2Exp)
-        var2<-paste0(var2Samp,'+',var2Lig,'+',var2Exp) #NOT SURE IF NECESSARY
+        subs<-filter(Chan_Bys,Sample==(VariableUnq[var,1]),Ligand==(VariableUnq[var,2]))}
+      
+      if (compare.exp==TRUE){
+        subs<-filter(Chan_Bys,Sample==(VariableUnq[var,1]),Ligand==(VariableUnq[var,2]),Exp_ID==(VariableUnq[var,3]))
       }
+      
       #create the ec50 estimate
       {try(curve_fit<-drm(
         #looking at ratio and concentration
@@ -599,7 +592,16 @@ BRET<-function(Experiment,
       
       
       if (exists("curve_fit")){
-        VariableUnq[var,3:6]<-curve_fit$coefficients
+        
+        if (compare.exp==FALSE){
+          VariableUnq[var,3:6]<-curve_fit$coefficients
+        }
+        
+        if (compare.exp==TRUE){
+          VariableUnq[var,4:7]<-curve_fit$coefficients
+        }
+        
+        
         ############################################     
         #IF EC50 LABELLING LINES ARE NEEDED
         #this will create a tribble of data for the addition of lines indicating the
@@ -649,8 +651,17 @@ BRET<-function(Experiment,
       }#end of loop for curve_fit works & exists
     } #end of for loop over variables
     
+    if (compare.exp==FALSE){
+      names(VariableUnq)[3:6]<-c("hill","min_value","max_value","ec_50")
+    }
+      
+    if (compare.exp==TRUE){
+      names(VariableUnq)[4:7]<-c("hill","min_value","max_value","ec_50")
+    }
     
-    names(VariableUnq)[3:6]<-c("hill","min_value","max_value","ec_50")
+    output[["vaunq"]]<-VariableUnq
+    
+    
 
     #after the loop is complete first subset if relevant and then
     #save relevant data to the global environment
@@ -720,6 +731,7 @@ BRET<-function(Experiment,
           VariableUnq$max_value[f]<-0
           VariableUnq$ec_50[f]<-1
         }
+    #    VariableUnq$hill[f]<-(-1)
       }
       
       #standard graphs, no experiment comparisons
@@ -753,7 +765,7 @@ BRET<-function(Experiment,
               geom_point(data=Chan_Bys,
                          mapping= aes(x=Log_Conc,
                                       y=Ratio),
-                         shape=15)
+                         shape=21,fill="white")
             }
             
             
@@ -784,7 +796,7 @@ BRET<-function(Experiment,
                          mapping= aes(x=Log_Conc,
                                       y=Ratio,
                                       colour=Sample),
-                         shape=15)
+                         shape=21,fill="white")
             }
             
           }
@@ -820,7 +832,7 @@ BRET<-function(Experiment,
                          mapping= aes(x=Log_Conc,
                                       y=Ratio,
                                       colour=Ligand),
-                         shape=15
+                         shape=21,fill="white"
               )
             }
             
@@ -943,7 +955,7 @@ BRET<-function(Experiment,
                 }
                 line<-geom_function(fun=eq,
                                     #colour is by experiment ID
-                                    aes(colour=VariableUnq$Exp_MasterID[i]),
+                                    aes(colour=VariableUnq$Exp_ID[i]),
                                     size=1.5)})
             
             
@@ -955,7 +967,7 @@ BRET<-function(Experiment,
                                         y=Ratio,
                                         #raw data points added by Exp_MasterID
                                         colour=Exp_MasterID),
-                           shape=15)
+                           shape=21,fill="white")
             }
               
             # end of [compare.exp] one ligand one sample
@@ -975,7 +987,7 @@ BRET<-function(Experiment,
                 }
                 line<-geom_function(fun=eq,
                                     #colour is by experiment ID, linetype is by sample
-                                    aes(colour=VariableUnq$Exp_MasterID[i],
+                                    aes(colour=VariableUnq$Exp_ID[i],
                                         linetype=VariableUnq$Sample[i]),
                                     size=1.5)})
             
@@ -1010,7 +1022,7 @@ BRET<-function(Experiment,
             }
             line<-geom_function(fun=eq,
                                 #colour is by experiment ID, linetype is by ligand
-                                aes(colour=VariableUnq$Exp_MasterID[i],
+                                aes(colour=VariableUnq$Exp_ID[i],
                                     linetype=VariableUnq$Ligand[i]),
                                 size=1.5)})
         
@@ -1055,7 +1067,7 @@ BRET<-function(Experiment,
       
       if (data.points==FALSE){
         bys_plot<-bys_plot+
-          geom_point(size=3,shape=15)
+          geom_point(size=3,shape=21,fill="white")
       }
       
       if (exists("control.ratio")){
