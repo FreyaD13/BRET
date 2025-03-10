@@ -42,7 +42,7 @@ BRET<-function(Experiment,
                #each experiment= 1 data point/1 replicate
                import.means=TRUE,
                compare.exp=FALSE,
-               data.points=TRUE,
+               data.points=FALSE,
                set.line.resolution=0.001,
                constrain.lims=TRUE,
                ec_f, #to calculate eg. ec75
@@ -50,7 +50,10 @@ BRET<-function(Experiment,
                subset.output=TRUE,
                set.control.well,
                set.control.row,
-               constrain.hill=FALSE
+               constrain.hill=FALSE,
+               Normalise,
+               nested.BRET=FALSE #this just tells BRET whether it is nested within a larger BRET so can be used
+               #to do things like turn off normalisation
 ){#Set universal defaults
   
   if (!missing(Figure)){
@@ -464,7 +467,25 @@ BRET<-function(Experiment,
         }
       }
       
-      
+      if ((!missing(Normalise))&nested.BRET==FALSE){
+        Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
+        if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
+          warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
+        }
+        
+        Normalisation_Curve<-drm(
+          #looking at ratio and concentration
+          formula=Ratio~Concentration,
+          #looking in the subs dataframe (just created as subset of Chan_Bys)
+          data=Normalisation,
+          fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+        )
+        
+        norm.max<-Normalisation_Curve$coefficients[3]
+        norm.factor<-100/norm.max
+        Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
+        
+      }
       
     
       #the average and standard error are taken to plot the error bars. New
@@ -494,7 +515,30 @@ BRET<-function(Experiment,
     }
     
     if (import.means==TRUE){
-      names(Chan_Bys)[c(6,7)]<-c("Ratio","Error")
+      Chan_Bys<-rename(.data=Chan_Bys,
+                       Ratio=m_ratio,
+                       Error=sem_ratio)
+      
+      if (!missing(Normalise)){
+        Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
+        if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
+          warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
+        }
+        
+        Normalisation_Curve<-drm(
+          #looking at ratio and concentration
+          formula=Ratio~Concentration,
+          #looking in the subs dataframe (just created as subset of Chan_Bys)
+          data=Normalisation,
+          fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+        )
+        
+        norm.max<-Normalisation_Curve$coefficients[3]
+        norm.factor<-100/norm.max
+        Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
+        
+      }
+      
       Av_Bys<-Chan_Bys|>
         group_by(Sample,Concentration,Log_Conc,Ligand)|>
         summarise(m_ratio=mean(Ratio),
@@ -503,12 +547,38 @@ BRET<-function(Experiment,
     
     if (import.means==FALSE){
       if (compare.exp==FALSE){ ##DEFAULT!
+        
+        if (!missing(Normalise)){
+          Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
+          if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
+            warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
+          }
+          
+          Normalisation_Curve<-drm(
+            #looking at ratio and concentration
+            formula=Ratio~Concentration,
+            #looking in the subs dataframe (just created as subset of Chan_Bys)
+            data=Normalisation,
+            fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+          )
+          
+          norm.max<-Normalisation_Curve$coefficients[3]
+          norm.factor<-100/norm.max
+          Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
+          
+        }
+        
         Av_Bys<-Chan_Bys|>
           group_by(Sample,Concentration,Log_Conc,Ligand)|>
           summarise(m_ratio=mean(Ratio),
                     sem_ratio=sd(Ratio)/sqrt(n()))
       }
       if (compare.exp==TRUE){
+        
+        if (!missing(Normalise)){
+          warning("Cannot yet normalise data when comparing experiments")
+        }
+        
         Av_Bys<-Chan_Bys|>
           group_by(Sample,Concentration,Log_Conc,Ligand,Exp_MasterID)|>
           summarise(m_ratio=mean(Ratio),
@@ -725,6 +795,12 @@ BRET<-function(Experiment,
           } else if (VariableUnq$hill[f]<0){
             VariableUnq$min_value[f]<-0
           }
+          
+          if (!missing(Normalise)){
+            if (VariableUnq$max_value[f]>100){
+              VariableUnq$max_value[f]<-100
+            }
+        }
         }
       }
       
@@ -820,6 +896,26 @@ BRET<-function(Experiment,
                          shape=21,fill="white")
             }
             
+            Samples<-VariableUnq$Sample
+            source("StandardColours.r",local=TRUE)
+            for (i in 1:length(Samples)){
+              if (i==1){
+                extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
+                coloursumm<-c()
+              }
+              sampcol<-filter(Sample.Colours,Sample==Samples[i])
+              if (dim(sampcol)[1]==0){
+                coloursumm[i]<-extra.colours[1]
+                extra.colours<-extra.colours[-1]
+              }
+              if (dim(sampcol)[1]>0){
+                coloursumm[i]<-sampcol[1,2]
+              }
+            }
+            
+            bys_plot<-bys_plot+
+              scale_colour_manual(breaks=Ligands,
+                                  values=coloursumm)
           }
           
         }#end of only one ligand
@@ -857,7 +953,29 @@ BRET<-function(Experiment,
               )
             }
             
-          }#end of there is only one sample
+            #Set standard colours
+            Ligands<-VariableUnq$Ligand
+            source("StandardColours.r",local=TRUE)
+            for (i in 1:length(Ligands)){
+              if (i==1){
+                extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
+                coloursumm<-c()
+              }
+              ligcol<-filter(Ligand.Colours,Ligand==Ligands[i])
+              if (dim(ligcol)[1]==0){
+                coloursumm[i]<-extra.colours[1]
+                extra.colours<-extra.colours[-1]
+              }
+              if (dim(ligcol)[1]>0){
+                coloursumm[i]<-ligcol[1,2]
+              }
+            }
+            
+            bys_plot<-bys_plot+
+              scale_colour_manual(breaks=Ligands,
+                                  values=coloursumm)
+            
+            }#end of there is only one sample
           else #else there are multiple samples and multiple ligands
           {
             #The default is that colour will indicate ligand and shape sample
@@ -894,7 +1012,30 @@ BRET<-function(Experiment,
                                         colour=Ligand,
                                         shape=Sample)
                 )
-              } 
+              }
+              
+              #Set standard colours
+              Ligands<-VariableUnq$Ligand
+              source("StandardColours.r",local=TRUE)
+              for (i in 1:length(Ligands)){
+                if (i==1){
+                  extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
+                  coloursumm<-c()
+                }
+                ligcol<-filter(Ligand.Colours,Ligand==Ligands[i])
+                if (dim(ligcol)[1]==0){
+                  coloursumm[i]<-extra.colours[1]
+                  extra.colours<-extra.colours[-1]
+                }
+                if (dim(ligcol)[1]>0){
+                  coloursumm[i]<-ligcol[1,2]
+                }
+              }
+              
+              bys_plot<-bys_plot+
+                scale_colour_manual(breaks=Ligands,
+                                    values=coloursumm)
+              
             }#end of colour = ligand, shape = sample
             else
             {
@@ -929,6 +1070,29 @@ BRET<-function(Experiment,
                                         shape=Ligand)
                 ) 
               }
+              
+              #Set standard colours
+              Samples<-VariableUnq$Sample
+              source("StandardColours.r",local=TRUE)
+              for (i in 1:length(Samples)){
+                if (i==1){
+                  extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
+                  coloursumm<-c()
+                }
+                sampcol<-filter(Sample.Colours,Sample==Samples[i])
+                if (dim(sampcol)[1]==0){
+                  coloursumm[i]<-extra.colours[1]
+                  extra.colours<-extra.colours[-1]
+                }
+                if (dim(sampcol)[1]>0){
+                  coloursumm[i]<-sampcol[1,2]
+                }
+              }
+              
+              bys_plot<-bys_plot+
+                scale_colour_manual(breaks=Ligands,
+                                    values=coloursumm)
+              
               
             }#end of colour = sample, shape =ligand
           }#end of there are multiple samples and multiple ligands
@@ -1058,6 +1222,8 @@ BRET<-function(Experiment,
         }
         
         }#end of [compare.exp] there are multiple ligands therefore one sample
+        bys_plot<-bys_plot+
+          scale_color_brewer(palette='Dark2') 
       }# end of compare.exp
       
       
@@ -1068,8 +1234,6 @@ BRET<-function(Experiment,
       max.conc<-max(Av_Bys$Concentration)
       
       bys_plot<-bys_plot+
-        #Automatic colours are dark2 palette 
-        scale_color_brewer(palette='Dark2') +
         #Labels, the x-axis can be labelled with the specific agonist 
         xlab(paste0('Log[',Agonist,'] M')) +
         ylab('BRET Ratio (Relative to Control)') +
@@ -1107,6 +1271,8 @@ BRET<-function(Experiment,
           }
       }
       
+      
+      
       if (missing(GProt)){
         if (max(Av_Bys$m_ratio>0.1)){
           bys_plot<-bys_plot+
@@ -1115,6 +1281,11 @@ BRET<-function(Experiment,
           bys_plot<-bys_plot+
             ylim(-0.015,0.10)
         }
+      }
+      
+      if (!missing(Normalise)){
+        bys_plot<-bys_plot+
+          ylim(-25,150)
       }
       
       if (error.bars==TRUE){
