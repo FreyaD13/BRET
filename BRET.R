@@ -896,27 +896,29 @@ BRET<-function(Experiment,
                          shape=21,fill="white")
             }
             
-            Samples<-VariableUnq$Sample
-            source("StandardColours.r",local=TRUE)
-            for (i in 1:length(Samples)){
-              if (i==1){
-                extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
-                coloursumm<-c()
-              }
-              sampcol<-filter(Sample.Colours,Sample==Samples[i])
-              if (dim(sampcol)[1]==0){
-                coloursumm[i]<-extra.colours[1]
-                extra.colours<-extra.colours[-1]
-              }
-              if (dim(sampcol)[1]>0){
-                coloursumm[i]<-sampcol[1,2]
-              }
+          }  #end of multiple samples, only one ligand
+          
+          #Set standard colours BY SAMPLE
+          Samples<-VariableUnq$Sample
+          source("StandardColours.r",local=TRUE)
+          for (i in 1:length(Samples)){
+            if (i==1){
+              extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
+              coloursumm<-c()
             }
-            
-            bys_plot<-bys_plot+
-              scale_colour_manual(breaks=Ligands,
-                                  values=coloursumm)
+            sampcol<-filter(Sample.Colours,Sample==Samples[i])
+            if (dim(sampcol)[1]==0){
+              coloursumm[i]<-extra.colours[1]
+              extra.colours<-extra.colours[-1]
+            }
+            if (dim(sampcol)[1]>0){
+              coloursumm[i]<-sampcol[1,2]
+            }
           }
+          
+          bys_plot<-bys_plot+
+            scale_colour_manual(breaks=Ligands,
+                                values=coloursumm)
           
         }#end of only one ligand
         else #there is more than one ligand but.....
@@ -1012,30 +1014,7 @@ BRET<-function(Experiment,
                                         colour=Ligand,
                                         shape=Sample)
                 )
-              }
-              
-              #Set standard colours
-              Ligands<-VariableUnq$Ligand
-              source("StandardColours.r",local=TRUE)
-              for (i in 1:length(Ligands)){
-                if (i==1){
-                  extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
-                  coloursumm<-c()
-                }
-                ligcol<-filter(Ligand.Colours,Ligand==Ligands[i])
-                if (dim(ligcol)[1]==0){
-                  coloursumm[i]<-extra.colours[1]
-                  extra.colours<-extra.colours[-1]
-                }
-                if (dim(ligcol)[1]>0){
-                  coloursumm[i]<-ligcol[1,2]
-                }
-              }
-              
-              bys_plot<-bys_plot+
-                scale_colour_manual(breaks=Ligands,
-                                    values=coloursumm)
-              
+              } 
             }#end of colour = ligand, shape = sample
             else
             {
@@ -1070,29 +1049,6 @@ BRET<-function(Experiment,
                                         shape=Ligand)
                 ) 
               }
-              
-              #Set standard colours
-              Samples<-VariableUnq$Sample
-              source("StandardColours.r",local=TRUE)
-              for (i in 1:length(Samples)){
-                if (i==1){
-                  extra.colours<-c("#A6CEE3","#FB9A99","#66A61E","#A6761D","#666666","#E41A1C","#377EB8","#7570B3","#A65628","#F781BF","#E6AB02")
-                  coloursumm<-c()
-                }
-                sampcol<-filter(Sample.Colours,Sample==Samples[i])
-                if (dim(sampcol)[1]==0){
-                  coloursumm[i]<-extra.colours[1]
-                  extra.colours<-extra.colours[-1]
-                }
-                if (dim(sampcol)[1]>0){
-                  coloursumm[i]<-sampcol[1,2]
-                }
-              }
-              
-              bys_plot<-bys_plot+
-                scale_colour_manual(breaks=Ligands,
-                                    values=coloursumm)
-              
               
             }#end of colour = sample, shape =ligand
           }#end of there are multiple samples and multiple ligands
@@ -1222,8 +1178,6 @@ BRET<-function(Experiment,
         }
         
         }#end of [compare.exp] there are multiple ligands therefore one sample
-        bys_plot<-bys_plot+
-          scale_color_brewer(palette='Dark2') 
       }# end of compare.exp
       
       
