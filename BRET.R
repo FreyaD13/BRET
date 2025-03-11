@@ -481,8 +481,13 @@ BRET<-function(Experiment,
             output[["Warning"]]<-"Normalisation Failed"
             warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
           } else if (dim(Normalisation)[1]==0){
-            output[["Warning"]]<-"Normalisation Failed"
-            warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & experiment will be excluded from analysis."))
+            if (!missing(dflt.norm.factor)&is.numeric(dflt.norm.factor)){
+              Chan_Bys$Ratio<-Chan_Bys$Ratio*dflt.norm.factor
+              warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & default norm factor used."))
+            } else if (missing(dflt.norm.factor)|!is.numeric(dflt.norm.factor)){
+              output[["Warning"]]<-"Normalisation Failed"
+              warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & experiment will be excluded from analysis."))
+            }
           } else if (dim(Normalisation)[1]>0) {
             Normalisation_Curve<-drm(
               #looking at ratio and concentration
@@ -492,8 +497,17 @@ BRET<-function(Experiment,
               fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
               )
             norm.max<-Normalisation_Curve$coefficients[3]
+       #     norm.min<-Normalisation_Curve$coefficients[2]
+
             norm.factor<-100/norm.max
-            Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor}
+       #       Chan_Bys$Ratio<-Chan_Bys$Ratio-norm.min
+            Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
+            
+            if (nested.BRET==TRUE & nested.run.no==1){
+              output[["dflt.norm.factor"]]<-norm.factor
+            }
+            
+            }
           }
         }
   
