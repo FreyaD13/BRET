@@ -51,13 +51,16 @@ BRET<-function(Experiment,
                set.control.well,
                set.control.row,
                constrain.hill=FALSE,
-               Normalise,
-               nested.BRET=FALSE #this just tells BRET whether it is nested within a larger BRET so can be used
-               #to do things like turn off normalisation
+               Normalise=FALSE,
+               nested.BRET=FALSE, #this just tells BRET whether it is nested within a larger BRET so can be used
+               #to do things like turn off normalisation,
+               nested.run.no,
+               dflt.norm.factor
 ){#Set universal defaults
   
   if (!missing(Figure)){
-    import.data<-BRETMultiple(Figure=Figure)
+    import.data<-BRETMultiple(Figure=Figure,
+                              Normalise=Normalise)
     import.means=TRUE
   }
   
@@ -467,27 +470,33 @@ BRET<-function(Experiment,
         }
       }
       
-      if ((!missing(Normalise))&nested.BRET==FALSE){
-        Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
-        if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
-          warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
-        }
-        
-        Normalisation_Curve<-drm(
-          #looking at ratio and concentration
-          formula=Ratio~Concentration,
-          #looking in the subs dataframe (just created as subset of Chan_Bys)
-          data=Normalisation,
-          fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
-        )
-        
-        norm.max<-Normalisation_Curve$coefficients[3]
-        norm.factor<-100/norm.max
-        Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
-        
-      }
       
-    
+      #NORMALISE
+      
+  #    if ((!missing(Normalise))&nested.BRET==FALSE){
+      if (!missing(Normalise)&(!Normalise==FALSE)){  
+        if ((missing(import.data)&missing(Figure))|nested.BRET==TRUE){
+          Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
+          if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
+            output[["Warning"]]<-"Normalisation Failed"
+            warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
+          } else if (dim(Normalisation)[1]==0){
+            output[["Warning"]]<-"Normalisation Failed"
+            warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & experiment will be excluded from analysis."))
+          } else if (dim(Normalisation)[1]>0) {
+            Normalisation_Curve<-drm(
+              #looking at ratio and concentration
+              formula=Ratio~Concentration,
+              #looking in the subs dataframe (just created as subset of Chan_Bys)
+              data=Normalisation,
+              fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+              )
+            norm.max<-Normalisation_Curve$coefficients[3]
+            norm.factor<-100/norm.max
+            Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor}
+          }
+        }
+  
       #the average and standard error are taken to plot the error bars. New
       #Experiment ID is introduced. Important in case these averages are used to
       #combine again, needs to be consistent with mean output of BRET() function.
@@ -496,6 +505,7 @@ BRET<-function(Experiment,
         summarise(Exp_ID=paste0(Experiment),
                   m_ratio=mean(Ratio),
                   sem_ratio=sd(Ratio)/sqrt(n()))
+      
     }
   } #end of normal BRET processing from raw data
   
@@ -589,6 +599,7 @@ BRET<-function(Experiment,
     }
   }
   
+
   if (subset.output==FALSE){
     if (save.means==TRUE){
       Av_Bys$Exp_MasterID<-paste0(Experiment)
