@@ -50,18 +50,22 @@ BRET<-function(Experiment,
                subset.output=TRUE,
                set.control.well,
                set.control.row,
-               constrain.hill=FALSE,
+               constrain.hill=TRUE,
                Normalise=FALSE,
                nested.BRET=FALSE, #this just tells BRET whether it is nested within a larger BRET so can be used
                #to do things like turn off normalisation,
-               nested.run.no,
-               dflt.norm.factor
+               nested.run.no =1,
+               dflt.norm.factor,
+               bias.calc=FALSE
 ){#Set universal defaults
   
   if (!missing(Figure)){
+    #if automatic figure data should be normalised within exps so normalise set to false after
     import.data<-BRETMultiple(Figure=Figure,
                               Normalise=Normalise)
-    import.means=TRUE
+    if (!(Normalise==FALSE)){
+      Normalise="Completed"
+    }
   }
   
   if ((find.ec50==FALSE)&(save.plot==TRUE)){
@@ -301,11 +305,6 @@ BRET<-function(Experiment,
           #so rows can be removed if they contain values under threshold
           rows.removed<-FALSE
           
-          #the automatic threshold is 1000
-          if (missing(lum.threshold)){
-            lum.threshold<-1000
-          }
-          
           
           #for the length of the Bys data frame
           for (row in 1:dim(Bys)[1]){
@@ -423,9 +422,6 @@ BRET<-function(Experiment,
       #sort by Experiment_ID. This solves previous issue of the row vehicle being
       #set the same over the two plates
       Chan_Bys<-(Chan_Bys[order(Chan_Bys$Exp_ID),])
-      
-      #Each well is normalised to the control The code runs over every
-      #row in the Chan_Bys dataframe.
 
       #if the data needs to be normalised to a specific row or well first the 
       #data will be filtered to find those wells if a specific well, the data 
@@ -444,6 +440,9 @@ BRET<-function(Experiment,
           mean((filter(Chan_Bys,Ligand==set.control.row|Sample==set.control.well))$Raw_Ratio)
       }
       
+      
+      #Each well is normalised to the control The code runs over every
+      #row in the Chan_Bys dataframe.
       for (row in 1:dim(Chan_Bys)[1]){
         if (exists("control.ratio")){
           if (GProt==FALSE){
@@ -473,8 +472,11 @@ BRET<-function(Experiment,
       
       #NORMALISE
       
-  #    if ((!missing(Normalise))&nested.BRET==FALSE){
-      if (!missing(Normalise)&(!Normalise==FALSE)){  
+  #   Right so if Normalise EXISRS, and its not FALSE or COMPLETED
+      if (!missing(Normalise)&!((Normalise==FALSE)|(Normalise=="Completed"))){
+        if (Normalise==TRUE){
+          Normalise<-"Dopamine"
+        }
         if ((missing(import.data)&missing(Figure))|nested.BRET==TRUE){
           Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
           if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
@@ -543,25 +545,43 @@ BRET<-function(Experiment,
                        Ratio=m_ratio,
                        Error=sem_ratio)
       
-      if (!missing(Normalise)){
-        Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
-        if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
-          warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
-        }
-        
-        Normalisation_Curve<-drm(
-          #looking at ratio and concentration
-          formula=Ratio~Concentration,
-          #looking in the subs dataframe (just created as subset of Chan_Bys)
-          data=Normalisation,
-          fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
-        )
-        
-        norm.max<-Normalisation_Curve$coefficients[3]
-        norm.factor<-100/norm.max
-        Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
-        
-      }
+      # #    if ((!missing(Normalise))&nested.BRET==FALSE){
+      # if (!missing(Normalise)&(!Normalise==FALSE)){  
+      #   if ((!exists("import.data")&missing(Figure))|nested.BRET==TRUE){
+      #     Normalisation<-filter(Chan_Bys,Sample==Normalise|Ligand==Normalise)
+      #     if (dim(unique(Normalisation[c('Sample','Ligand')]))[1]>1){
+      #       output[["Warning"]]<-"Normalisation Failed"
+      #       warning("Multiple sample types per ligand or ligands per sample for normalisation.No solution developed")
+      #     } else if (dim(Normalisation)[1]==0){
+      #       if (!missing(dflt.norm.factor)&is.numeric(dflt.norm.factor)){
+      #         Chan_Bys$Ratio<-Chan_Bys$Ratio*dflt.norm.factor
+      #         warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & default norm factor used."))
+      #       } else if (missing(dflt.norm.factor)|!is.numeric(dflt.norm.factor)){
+      #         output[["Warning"]]<-"Normalisation Failed"
+      #         warning(paste0(Normalise," (required for normalisation) was not run for experiment ", Experiment," & experiment will be excluded from analysis."))
+      #       }
+      #     } else if (dim(Normalisation)[1]>0) {
+      #       Normalisation_Curve<-drm(
+      #         #looking at ratio and concentration
+      #         formula=Ratio~Concentration,
+      #         #looking in the subs dataframe (just created as subset of Chan_Bys)
+      #         data=Normalisation,
+      #         fct = LL.4(names=c('hill','min_value','max_value','ec_50'))
+      #       )
+      #       norm.max<-Normalisation_Curve$coefficients[3]
+      #       #     norm.min<-Normalisation_Curve$coefficients[2]
+      #       
+      #       norm.factor<-100/norm.max
+      #       #       Chan_Bys$Ratio<-Chan_Bys$Ratio-norm.min
+      #       Chan_Bys$Ratio<-Chan_Bys$Ratio*norm.factor
+      #       
+      #       if (nested.BRET==TRUE & nested.run.no==1){
+      #         output[["dflt.norm.factor"]]<-norm.factor
+      #       }
+      #       
+      #     }
+      #   }
+      # }
       
       Av_Bys<-Chan_Bys|>
         group_by(Sample,Concentration,Log_Conc,Ligand)|>
@@ -648,8 +668,7 @@ BRET<-function(Experiment,
     }
   }
   
-  ########THIS POINT TO NORMALISE
-  
+
   
   if (find.ec50==TRUE){
     #EC50 CALCULATION
@@ -677,7 +696,13 @@ BRET<-function(Experiment,
     for (var in 1:dim(VariableUnq)[1]){
      
       if (compare.exp==FALSE){
-        subs<-filter(Chan_Bys,Sample==(VariableUnq[var,1]),Ligand==(VariableUnq[var,2]))}
+        subs<-filter(Chan_Bys,Sample==(VariableUnq[var,1]),Ligand==(VariableUnq[var,2]))
+        if (VariableUnq[var,2]=="MLS-1547"){
+          output$Mlsdata<-subs}
+        if (VariableUnq[var,2]=="Dopamine"){
+          output$dopadata<-subs
+        }
+        }
       
       if (compare.exp==TRUE){
         subs<-filter(Chan_Bys,Sample==(VariableUnq[var,1]),Ligand==(VariableUnq[var,2]),Exp_ID==(VariableUnq[var,3]))
@@ -785,6 +810,27 @@ BRET<-function(Experiment,
     if (!missing(ec_f)){
       VariableUnq[paste0("EC",ec_f)]<-VariableUnq$ec_50*((ec_f/(100-ec_f))^(1/-VariableUnq$hill))
       VariableUnq[paste0("pEC",ec_f)]<-log10(VariableUnq$ec_50*((ec_f/(100-ec_f))^(1/-VariableUnq$hill))/(10^6))
+    }
+    
+    #Export ratios for bias calculation
+    if (!missing(bias.calc)&!bias.calc==FALSE){
+      if (bias.calc==TRUE){
+        Control="Dopamine"
+      } else (Control=bias.calc)
+      
+      VariableUnq$BiasRatio<-log((VariableUnq$max_value)/(VariableUnq$ec_50))
+      CTRLRatio<-filter(VariableUnq,Ligand==Control)$BiasRatio
+      VariableUnq$BiasRatio<-(VariableUnq$BiasRatio)-CTRLRatio
+      
+      if (GProt==TRUE){
+        rename(.data=VariableUnq,
+               GProtBiasR=BiasRatio)
+      }
+      
+      if (GProt==FALSE){
+        rename(.data=VariableUnq,
+               BArrBiasR=BiasRatio)
+      }
     }
     
     output[["CurveParams"]]<-VariableUnq
@@ -1220,18 +1266,36 @@ BRET<-function(Experiment,
         #ggtitle((paste0('Experiment: ',Experiment)))+
         #scale x axis
         scale_x_continuous(n.breaks=0.5*length(unique(Av_Bys$Concentration)))+
-        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-              panel.background = element_blank(), axis.line = element_line(colour = "black"),
-              axis.text.x=element_text(size=12, face="bold"),
-              axis.text.y=element_text(size=12, face="bold"))+
         xlim((round((log10(((as.numeric(min.conc))/10^6))),1)-0.25),
-             (round((log10(((as.numeric(max.conc))/10^6))),1)+0.25))+ 
-        theme(legend.position = c(0.2,0.75))+
+             (round((log10(((as.numeric(max.conc))/10^6))),1)+0.25))+
+        theme(panel.grid.major = element_blank(), 
+              panel.grid.minor = element_blank(),
+              panel.background = element_blank(),
+              plot.background = element_rect(fill='transparent', colour=NA),
+              axis.line = element_line(colour = "black"),
+              axis.text.x=element_text(size=15, face="bold"),
+              axis.text.y=element_text(size=15, face="bold"),
+              axis.title.x = element_text(size=15,face="bold"),
+              axis.title.y = element_text(size=15,face="bold"),
+              legend.position = c(0.2,0.75),
+              legend.title = element_text(size = 12),
+              legend.text = element_text(size=12))+ 
         ylim(-0.03,0.20)
+      
+      
+      if (error.bars==TRUE){
+        bys_plot<-bys_plot+
+          #error bars are standard error
+          geom_errorbar(aes(ymin = m_ratio - sem_ratio,
+                            ymax = m_ratio + sem_ratio),
+                        size=.9,
+                        width=0.1,
+                        alpha=0.75)
+      }
       
       if (data.points==FALSE){
         bys_plot<-bys_plot+
-          geom_point(size=3,shape=21,fill="white")
+          geom_point(size=4.5,shape=22, fill="white",stroke=1.5,alpha=0.8)
       }
       
       if (exists("control.ratio")){
@@ -1262,18 +1326,12 @@ BRET<-function(Experiment,
         }
       }
       
-      if (!missing(Normalise)){
+      if (!(Normalise==FALSE)){
         bys_plot<-bys_plot+
           ylim(-25,150)
       }
       
-      if (error.bars==TRUE){
-        bys_plot<-bys_plot+
-          #error bars are standard error
-          geom_errorbar(aes(ymin = m_ratio - sem_ratio,
-                            ymax = m_ratio + sem_ratio),
-                        width = 0.3)
-      }
+    
       
       if (!missing(highlight.ec50)){
         #create a subset list of the EC50 lines. first split the sample and ligand
