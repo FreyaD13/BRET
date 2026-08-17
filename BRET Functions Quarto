@@ -1,0 +1,214 @@
+---
+title: "BRET Functions"
+author: "Freya"
+format: html
+editor: visual
+---
+
+## Set Up Environment
+
+```{r}
+if (!'tidyverse' %in% installed.packages()) install.packages('tidyverse')
+if (!'RColorBrewer' %in% installed.packages()) install.packages('RColorBrewer')
+if (!'drc' %in% installed.packages()) install.packages('drc')
+if (!'cowplot' %in% installed.packages()) install.packages('cowplot')
+if (!'janitor' %in% installed.packages()) install.packages('janitor')
+if (!'wesanderson' %in% installed.packages()) install.packages('wesanderson')
+library('tidyverse')
+library('wesanderson')
+library('RColorBrewer')
+library('cowplot')
+library('magrittr')
+library('tibble')
+library(tidyverse)
+library('drc')
+```
+
+Or reset environment
+
+```{r}
+rm(list=ls())
+```
+
+## Simple BRET function
+
+```{r}
+#| label: BRETf
+BRETf<-function(file,
+                ligands,
+                samples="D2L",
+                directory="Raw data/",
+                Concentrations=c("30", "10", "3", "1","0.3","0.1" ,"0.03" ,"0.01" ,"0.003","0.001","0.0003","0"),
+                GProt=TRUE,
+                Bys_New=TRUE){
+  
+  
+  
+  ###Extract information about experiment for later processing
+  
+  if (grepl("Bystander",file)){
+    GProt=FALSE
+    x<-gsub("Bystander","",file)
+    Type<-"Bystander"
+  }
+  
+  if (GProt==TRUE){
+    x<-gsub("GProtein","",file)
+    Type<-"GProtein"
+  }
+  
+  #extract exp number
+  Exp_ID<-gsub("\\D","",x)
+  
+  #Extract Plate
+  Plate<-gsub("[[:digit:]]","",x)
+  
+  if (nchar(Plate)==0){
+    Plate<-"A"
+  }
+  
+  Data_Path<-paste0(directory,file,".csv")
+  
+  Bys<-read.csv(Data_Path)
+  
+  if (GProt==FALSE & Bys_New==TRUE){
+    Bys<-bind_rows(Bys[12:19,],Bys[23:30,])
+  } else {
+    Bys<-bind_rows(Bys[36:43,],Bys[47:54,],Bys[59:66,],Bys[70:77,]) 
+    
+    Bys$Interval<-"Two"
+    Bys$Interval[17:32]<-"Three"
+  }
+
+  names(Bys)[1:13]<-c("row",Concentrations)
+  
+  Bys<-Bys|>
+    mutate_at(2:13,as.numeric)
+  
+
+  
+  if (GProt==TRUE){
+   Bys$Channel<-"Acceptor"
+   Bys$Channel[c(9:16,25:32)]<-"Donor" 
+  } else {
+    Bys$Channel<-"Donor"
+    Bys$Channel[c(9:16,25:32)]<-"Acceptor" 
+  }
+  
+  ###FIND LIGANDS FROM CSV FILE
+  
+if (missing(ligands)){
+  plate.layout_l<-read.csv("PlateLayouts_Ligands.csv")
+  
+  plate.layout_l<-plate.layout_l|>
+    filter(Exp_ID_L==Exp_ID,
+           Type_L==Type|Type_L=="Both",
+           Plate_L==Plate|Plate_L=="ALL")|>
+  pivot_longer(c(4:11),
+               values_to="ligand")
+  
+  if (dim(plate.layout_l)[1]==0) {
+    errorCondition("Ligands not found")
+  }
+  
+  ligands<-plate.layout_l$ligand
+}
+  
+  
+  
+  if (length(samples)<8){
+    samples<-rep(samples,ceiling(8/length(samples)))
+    samples<-samples[1:8]
+  }
+  
+  if (length(ligands)<8){
+    ligands<-rep(ligands,ceiling(8/length(ligands)))
+    ligands<-ligands[1:8]
+  }
+  
+  p_layout<-data.frame(row=LETTERS[1:8],
+                 sample=samples,
+                 ligand=ligands)
+  
+  Bys<-left_join(x=Bys,
+            y=p_layout,
+            by="row")
+  
+#Useful to remove rows under threshold here [See "BRET 33.R]
+  Bys<-
+    Bys |> 
+    pivot_longer(
+      cols = 2:13,
+      names_to = "Concentration", 
+      values_to = "Emission",
+      values_drop_na = TRUE,
+      names_transform=list(Concentration=as.numeric))
+  
+  #Tag experiment with type, number and plate
+  Bys$Type<-Type
+  Bys$Exp_ID<-Exp_ID
+  Bys$Plate<-Plate
+  
+  #Take Average emission across time points.
+  Chan_Bys<-Bys|>
+    pivot_wider(
+      names_from=Interval,
+      values_from=Emission) |>
+    group_by(row, Channel, sample, Concentration,ligand,Exp_ID,Plate) |> 
+    summarise(AvWell_Emission=((Two+Three)/2),
+              Log_Conc=log10((Concentration/10^6)))|>
+    pivot_wider(
+      names_from=Channel,
+      values_from=AvWell_Emission) |>
+    group_by(row, sample, Concentration,Log_Conc,ligand,Exp_ID,Plate)|>
+    summarise(Raw_Ratio=Acceptor/Donor)
+  
+  Chan_Bys$True_Ratio<-0
+  
+  ##need to add option to set control row
+  
+  for (row in 1:dim(Chan_Bys)[1]){
+    
+    if (Chan_Bys$Concentration[row]==0){
+        r_veh<-Chan_Bys$Raw_Ratio[row]
+      }
+    
+    Chan_Bys$True_Ratio[row]<-Chan_Bys$Raw_Ratio[row]-r_veh
+  }
+  
+  return(Chan_Bys)
+}
+
+```
+
+##Multiple Experiments
+
+```{r}
+#| label: BRETe
+BRETe<-function(experiment,
+                ligands,
+                samples="D2L",
+                directory="Raw data/",
+                Concentrations=c("30", "10", "3", "1","0.3","0.1" ,"0.03" ,"0.01" ,"0.003","0.001","0.0003","0"),
+                GProt=TRUE){
+  
+  FILES<-
+    grep(paste0(experiment),list.files(directory),value = TRUE)
+  
+  FILES<-gsub(".csv","",FILES)
+
+  for (file in 1:length(FILES)){
+    bys<-BRETf(file=FILES[file],
+               ligands = ligands,
+               samples = samples,
+               directory = directory,
+               Concentrations = Concentrations,
+               GProt = GProt)
+    
+    if (file==1){
+      chanbys<-bys } else {
+      chanbys<-bind_rows(chanbys,bys)}
+    } #end BRETf
+  return(chanbys)
+}
+```
